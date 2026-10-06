@@ -109,3 +109,7 @@ Honest quality read from the first live run (details in RUNLOG.md):
 - Extraction is good: 3 of 4 cases extracted all five term fields exactly; the fourth differed only on category inference.
 - The governance gate rejected all four proposals, every time on rationale discipline (derived arithmetic and one case of citing policy context as terms), never on extracted-term accuracy. Fail-closed held: no model output reached the ledger without passing the gate.
 - New tuning finding: `no_new_facts` treats derived arithmetic in the rationale as fabricated facts. That is stricter than the intent (guard against invented vendor facts). Fix direction: prompt-side (ban derived numbers in rationales) or guardrail-side (whitelist derivable numbers). Deliberately NOT fixed silently before submission - the current behavior is safe (refuses) and the tradeoff deserves a decision, not a quiet patch.
+
+## Tuning decision (2026-10-06, Sandi's call)
+
+The no_new_facts guardrail originally rejected derived arithmetic in rationales (e.g. monthly x 12). Per the owner's call ("want the use cases and examples working"), the guardrail now accepts plain arithmetic derived from the terms numbers and the grounded forecast summary, while still rejecting numbers with no derivation path (9000, 97-style snowballs stay blocked; evals 55/55). Fail-closed posture unchanged: the garbage-terms edge case was rejected on exactly this guardrail live.

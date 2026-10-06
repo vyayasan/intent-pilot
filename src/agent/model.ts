@@ -92,7 +92,9 @@ export class OpenAICompatibleModel implements ModelClient {
       }
     }
     const body = JSON.stringify({
-      model: this.model, messages, temperature: 0, max_tokens: 4096,
+      model: this.model, messages, temperature: 0, max_tokens: Number(process.env.EXTRACTION_MAX_TOKENS ?? 4096),
+        // Some free tiers cap output tokens/min hard; reasoning effort is env-tunable to fit (e.g. "none").
+        ...(process.env.EXTRACTION_REASONING_EFFORT ? { reasoning_effort: process.env.EXTRACTION_REASONING_EFFORT } : {}),
       tools: req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })),
       tool_choice: "auto",
     });
