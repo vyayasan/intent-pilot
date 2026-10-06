@@ -99,7 +99,12 @@ export class OpenAICompatibleModel implements ModelClient {
     const r = await this.send(body);
     const j: any = await r.json().catch(() => ({}));
     // Only the status and provider error type are surfaced, never the request or its headers.
-    if (!r.ok) throw new Error(`model request failed: ${r.status} ${String(j?.error?.type ?? j?.error?.code ?? "error").slice(0, 60)}`);
+    if (!r.ok) {
+      // Status plus provider error type/code, and a truncated provider message when it carries the failing limit
+      // (rate-limit details only). Never the request or its headers.
+      const msg = /rate.limit|token|quota/i.test(String(j?.error?.message ?? "")) ? ` - ${String(j.error.message).slice(0, 140)}` : "";
+      throw new Error(`model request failed: ${r.status} ${String(j?.error?.type ?? j?.error?.code ?? "error").slice(0, 60)}${msg}`);
+    }
     const msg = j?.choices?.[0]?.message;
     if (!msg) throw new Error("model response had no choices");
     const blocks: Block[] = [];
