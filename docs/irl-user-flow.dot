@@ -3,7 +3,7 @@ digraph irlflow {
   node [shape=box, style="rounded,filled", color="#d8e2d8", fillcolor="#fffdf8", fontname="Inter", fontsize=11, fontcolor="#1d2a25", margin="0.16,0.12", penwidth=1.3];
   edge [color="#35594b", penwidth=1.5, arrowsize=0.72, fontname="Inter", fontsize=9, fontcolor="#52675d"];
   onboard [label="1 · SETUP (person, once)\nFinance lead connects Airwallex\nSets policy: reserve floor · forecast\ncategories · caps", fillcolor="#f3ead8", color="#d7c8a8", penwidth=1.6];
-  request [label="2 · PURCHASE REQUEST (person)\nOps pastes the vendor's real terms\n\"$100/mo or $984/yr, 30 days notice\"", fillcolor="#f3ead8", color="#d7c8a8"];
+  request [label="2 · CONTRACT ARRIVES (automatic)\nUpload, PDF, vendor email or e-sign webhook\n\"$100/mo or $984/yr, 30 days notice\"", fillcolor="#f3ead8", color="#d7c8a8"];
   extract [label="3 · TERMS EXTRACTION (agent)\nModel reads terms under the gate\nInjection treated as data\nUnsure? It asks a person", fillcolor="#f7eee5", color="#d9b18c"];
   decide [label="4 · DECISION (deterministic code)\nAnnual vs monthly against the\nforecast and the floor, with reasons\nand a reconsider date", fillcolor="#dcebe0", color="#789b82"];
   approve [label="5 · INTENT APPROVAL (person)\nOne click, HMAC-bound, expiring\nCadence · cap · currency · categories\nor reject with a reason", fillcolor="#f3ead8", color="#d7c8a8", penwidth=1.6];

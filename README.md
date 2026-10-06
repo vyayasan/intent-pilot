@@ -36,7 +36,7 @@ The running example is the cash-crunch scenario: Acme Analytics Pro, $100/month 
 
 ![The IRL user flow](docs/5-irl-user-flow.png)
 
-A finance lead sets policy once; ops pastes real vendor terms; the agent extracts under the governance gate; deterministic policy code picks the cadence with reasons; a person approves the intent in one click; the card issues with exactly those controls; renewals clear or decline at the rail with the rule named; settlement reconciles and the audit log holds every step. The full walkthrough is in [docs/user-flow.md](docs/user-flow.md).
+A finance lead sets policy once; the signed contract arrives automatically - in-app upload, PDF, vendor email or e-sign webhook, each producing untrusted text plus an audit-trail provenance (`src/intake/intake.ts`); the agent extracts under the governance gate; deterministic policy code picks the cadence with reasons; a person approves the intent in one click; the card issues with exactly those controls; renewals clear or decline at the rail with the rule named; settlement reconciles and the audit log holds every step. The full walkthrough is in [docs/user-flow.md](docs/user-flow.md).
 
 ## Why it is safe to hand money decisions to
 - **Decisions live in code.** The cadence math, the reserve floor, the card payload and the state machine are code and config. Where a model is switched on (see below), it extracts and proposes. It does not hold credentials and does not get the last word.
