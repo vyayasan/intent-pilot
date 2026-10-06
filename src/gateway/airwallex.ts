@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 // simulators under /api/v1/simulation/issuing.
 export interface ClientOpts {
   clientId: string; apiKey: string;
+  /** Skip login and send this bearer token - for a local auth-injecting proxy that owns the credentials. */
+  bearerToken?: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch; now?: () => number; maxRps?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -19,7 +21,7 @@ export class AirwallexClient {
   private f: typeof fetch; private now: () => number; private sleep: (ms: number) => Promise<void>;
   private base: string; private maxRps: number;
   constructor(private o: ClientOpts) {
-    if (!o.clientId || !o.apiKey) throw new Error("clientId and apiKey are required");
+    if (!o.bearerToken && (!o.clientId || !o.apiKey)) throw new Error("clientId and apiKey are required");
     this.f = o.fetchImpl ?? fetch; this.now = o.now ?? Date.now;
     this.sleep = o.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.base = o.baseUrl ?? "https://api.sandbox.airwallex.com";
@@ -33,6 +35,7 @@ export class AirwallexClient {
     }
   }
   private async auth(): Promise<string> {
+    if (this.o.bearerToken) return this.o.bearerToken;
     if (this.token && this.now() < this.tokenExp - 60_000) return this.token;
     await this.throttle();
     const r = await this.f(`${this.base}/api/v1/authentication/login`, { method: "POST", headers: { "x-client-id": this.o.clientId, "x-api-key": this.o.apiKey } });
@@ -41,8 +44,9 @@ export class AirwallexClient {
     this.token = j.token; this.tokenExp = this.now() + 25 * 60_000; // refresh well inside the 30 min life
     return this.token;
   }
+  // Public so run scripts can reach documented endpoints the typed helpers do not cover yet.
   // requestId should be stable per logical action (e.g. the approval nonce) so a retry after a timeout is deduplicated by Airwallex.
-  private async call<T>(method: "GET" | "POST", path: string, body?: Record<string, unknown>, requestId?: string): Promise<T> {
+  async call<T>(method: "GET" | "POST", path: string, body?: Record<string, unknown>, requestId?: string): Promise<T> {
     // One payload for every attempt, so a retry of a POST reuses the same request_id and Airwallex deduplicates it.
     const payload = method === "POST" ? { request_id: requestId ?? randomUUID(), ...(body ?? {}) } : undefined;
     let refreshed = false;
@@ -83,10 +87,11 @@ export class AirwallexClient {
     return this.call<any>("POST", "/api/v1/simulation/issuing/create", body, requestId);
   }
   simCapture(transactionId: string, requestId?: string) {
-    return this.call<any>("POST", `/api/v1/simulation/issuing/${encodeURIComponent(transactionId)}/capture`, {}, requestId);
+    // This API version captures through the transaction lifecycle id, not the transaction id.
+    return this.call<any>("POST", `/api/v1/simulation/issuing/card_transaction_lifecycles/${encodeURIComponent(transactionId)}/capture`, {}, requestId);
   }
   simReverse(transactionId: string, requestId?: string) {
-    return this.call<any>("POST", `/api/v1/simulation/issuing/${encodeURIComponent(transactionId)}/reverse`, {}, requestId);
+    return this.call<any>("POST", `/api/v1/simulation/issuing/card_transaction_lifecycles/${encodeURIComponent(transactionId)}/reverse`, {}, requestId);
   }
   simRefund(body: Record<string, unknown>, requestId?: string) {
     return this.call<any>("POST", "/api/v1/simulation/issuing/refund", body, requestId);

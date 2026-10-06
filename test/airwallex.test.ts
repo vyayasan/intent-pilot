@@ -29,6 +29,16 @@ describe("client resilience", () => {
   });
 });
 
+describe("bearer token mode", () => {
+  it("skips login when a bearer token is supplied (auth-injecting proxy)", async () => {
+    const calls: string[] = [];
+    const f: typeof fetch = (async (url: any) => { calls.push(String(url)); return new Response(JSON.stringify({ items: [] }), { status: 200 }); }) as any;
+    const c = new AirwallexClient({ clientId: "", apiKey: "", bearerToken: "proxy-injected", baseUrl: "http://127.0.0.1:8788", fetchImpl: f });
+    await c.listTransactions();
+    expect(calls.some((u) => u.includes("authentication/login"))).toBe(false);
+  });
+});
+
 describe("live status mapping", () => {
   it("treats transaction_type CLEARING as accepted", () => {
     expect(toCardTransaction({ id: "txn_1", card_id: "crd_1", amount: 75, currency: "USD", transaction_type: "CLEARING", status: "PENDING" }).status).toBe("CLEARING");
