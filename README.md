@@ -86,6 +86,9 @@ Needs Node 20+.
 
 Open http://localhost:3000. Review a case, approve the intent, create the card, then try the purchases: the in-policy one clears and an over-cap, wrong-currency or wrong-category one declines with the rule it broke. Freeze the card and everything declines. The console binds to loopback only, checks Host and Origin, and uses a per-run token.
 
+## Recordable live demo
+`npm run demo` runs the whole story against the Airwallex issuing sandbox, deterministic and narrated for screen recording: the vendor terms arrive by intake email, policy code picks annual over monthly, a person approves an intent bound to the exact terms, the card is issued with controls derived from that approval, and the rail then accepts the approved purchase and declines the rest - over the cap, wrong currency, wrong category, frozen card - with the sandbox's own decline reasons. The tamper test (approval vs a $1-changed intent) is refused. It writes a self-contained replay page at [docs/demo-kit2.html](docs/demo-kit2.html) and a machine log at `runs/demo-kit2.jsonl`. Sandbox money only; credentials live only in the environment of a local auth proxy.
+
 ## Verify
 
     npm test        # 160 tests
