@@ -5,6 +5,7 @@ import { cardPayload, decide, DEFAULT_POLICY, type CadenceDecision } from "../po
 import type { Card, CardTransaction, PurchaseCase, PurchaseIntent, Terms } from "../domain/types.js";
 import { AuditLog } from "../audit/audit.js";
 import { makeSim, type IssuingGateway } from "../sim/simGateway.js";
+import type { PlanResult } from "../agent/planner.js";
 
 // The console's case state: the purchase case plus where it is in the flow.
 export interface CaseState {
@@ -27,6 +28,7 @@ const CreateCardBody = z.object({ approval: z.object({
 const SimulateBody = z.object({ caseId: z.string(), kind: z.enum(["in-policy", "over-cap", "wrong-currency", "wrong-category"]) });
 const RejectBody = z.object({ caseId: z.string(), reason: z.string().trim().min(1).max(1024) }); // a rejection must say why
 const FreezeBody = z.object({ caseId: z.string() });
+const ExtractBody = z.object({ caseId: z.string() });
 
 export interface CaseView {
   kase: PurchaseCase;
@@ -42,6 +44,8 @@ export interface CaseView {
 
 export interface ConsoleApiOptions {
   gateway?: IssuingGateway;
+  /** Optional model-backed extractor. It proposes terms; governance gates them; a person still approves the intent. */
+  planner?: (kase: PurchaseCase, forecast: { weeklyBalances: number[]; reserveFloor: number }) => Promise<PlanResult>;
   key?: string;
   approver?: string;
   now?: () => Date;
@@ -62,6 +66,17 @@ export function demoCases(): CaseState[] {
     },
     forecast: {
       weeklyBalances: [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }, {
+    kase: {
+      id: "case_flowdesk", vendor: "Flowdesk",
+      rawTerms: "Flowdesk Team plan. Monthly billing: 40 USD per month. Annual billing: 400 USD per year, paid in advance. Cancel monthly plans with 14 days notice. Category: software.",
+    },
+    forecast: {
+      weeklyBalances: [3000, 3050, 3100, 3150, 3200, 3250, 3300, 3350, 3400, 3450, 3500, 3550],
       reserveFloor: 500,
     },
     transactionIds: [],
@@ -190,6 +205,30 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       c.log.push(`Reviewer rejected the case: ${parsed.data.reason}. No card was created.`);
       audit.append("recommendation_rejected", { reason: parsed.data.reason }, c.kase.id);
       return json({ case: view(c) });
+    }
+    if (url.pathname === "/api/extract" && request.method === "POST") {
+      if (!options.planner) return bad("no model configured: the terms above stay human-entered", 501);
+      const parsed = ExtractBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid extract request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c) return bad("case not found", 404);
+      const plan = await options.planner(c.kase, c.forecast);
+      if (!plan.ok) {
+        audit.append("model_error", { error: plan.error }, c.kase.id);
+        c.log.push(`Model unavailable: ${plan.error}. Human-entered terms stand.`);
+        return json({ plan, case: view(c) });
+      }
+      audit.append(plan.gate?.accepted ? "model_proposal" : "model_proposal_rejected", {
+        cadence: plan.proposal?.cadence, confidence: plan.proposal?.confidence, finalCadence: plan.gate?.finalCadence, reasons: plan.gate?.reasons,
+        governance: plan.gate?.governance ? { rubricTotal: plan.gate.governance.rubric?.total, band: plan.gate.governance.rubric?.band, guardrails: plan.gate.governance.guardrailViolations.map((x) => x.check), reasoning: plan.gate.governance.reasoningViolations.map((x) => x.check), warnings: plan.gate.governance.warnings, critic: plan.gate.governance.critic?.veto } : undefined,
+      }, c.kase.id);
+      if (plan.gate?.accepted && plan.gate.finalCadence !== "ESCALATE" && plan.proposal) {
+        c.kase.terms = { ...plan.proposal.extracted_terms };
+        c.log.push(`Model extraction accepted by governance (${plan.gate.reasons.join("; ")}). A person still approves the intent.`);
+      } else {
+        c.log.push(`Model extraction not adopted: ${(plan.gate?.reasons ?? ["no proposal"]).join("; ")}.`);
+      }
+      return json({ plan, case: view(c) });
     }
     return bad("not found", 404);
   };
