@@ -1,47 +1,76 @@
 export const page = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Intent Pilot - Approval console</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IntentPay - Approval console</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
 <style>
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17201e;background:#f4f6f3;font-synthesis:none}
-*{box-sizing:border-box}body{margin:0}.shell{max-width:1320px;margin:auto;padding:0 34px 55px}
-.top{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #dfe5e0}
-.brand{display:flex;align-items:center;gap:10px;font-weight:750}.mark{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:#163d34;color:#fff;font-size:12px}
-.intro{padding:38px 0 24px}.eyebrow{margin:0 0 9px;color:#71807a;font-size:10px;font-weight:800;letter-spacing:.12em}
-.intro h1{margin:0;font-size:clamp(28px,4vw,40px);letter-spacing:-.045em}.sub{color:#68746f;margin:12px 0 0;font-size:14px}
-.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:22px;align-items:start}
-.queue,.card{background:#fff;border:1px solid #e4e9e5;border-radius:14px}
-.queue{position:sticky;top:18px;padding:16px 11px}.qhead,.panelhead{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.qhead{padding:0 8px 10px}.muted{font-size:11px;color:#89958f}
-.casebtn{width:100%;display:grid;gap:5px;text-align:left;padding:12px 10px;border:0;border-radius:10px;background:transparent;cursor:pointer;font:inherit}
-.casebtn.on{background:#eef4f1}.casebtn b{font-size:13px}.casebtn span{font-size:11px;color:#68746f}
-.panel{padding:26px 28px}.panel h2{margin:0;font-size:22px;letter-spacing:-.03em}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
-.box{border:1px solid #e4e9e5;border-radius:12px;padding:16px}.box h3{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#71807a}
-.terms{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#f7f9f7;border-radius:8px;padding:10px;white-space:pre-wrap;color:#39423e}
-table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #edf1ee}th{color:#71807a;font-weight:600;font-size:11px}
-.decision{border-left:3px solid #163d34;background:#eef4f1;border-radius:0 10px 10px 0;padding:14px 16px;margin-top:16px}
-.decision b{font-size:15px}.reasons{margin:8px 0 0;padding-left:18px;color:#39423e;font-size:13px}.reasons li{margin:4px 0}
-.fc{display:flex;gap:4px;align-items:flex-end;height:86px;margin-top:8px;position:relative}.bar{flex:1;background:#cdd9d2;border-radius:3px 3px 0 0;position:relative}
-.bar.breach{background:#c05353}.floor{position:absolute;left:0;right:0;border-top:2px dashed #c05353;top:38%}
+:root{font-family:Poppins,Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#101828;background:#fcfcfd;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0;font-size:14px}
+.strip{background:#f2f4f7;color:#475467;font-size:12px;text-align:center;padding:8px 12px}
+.wrap{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 33px);align-items:start}
+.side{background:#14171a;color:#e6eaee;display:flex;flex-direction:column;padding:14px 12px;position:sticky;top:0;min-height:100vh}
+.org{display:flex;gap:10px;align-items:center;padding:6px 8px 14px;border-bottom:1px solid #23282d;margin-bottom:6px}
+.orgmark{width:34px;height:34px;border-radius:50%;background:#e04d37;color:#fff;display:grid;place-items:center;font-weight:600;font-size:12px}
+.orgt strong{font-size:14px;display:block;font-weight:600;color:#fff}.orgt span{font-size:11px;color:#9ba3ab}
+.navhead{font-size:10px;letter-spacing:.09em;color:#8a939c;margin:16px 8px 6px;text-transform:uppercase;font-weight:600}
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font-size:13px;color:#e6eaee}
+.navitem.active{color:#e04d37;background:#1e2226;font-weight:500;box-shadow:inset 3px 0 #e04d37}
+.casebtn{display:block;width:100%;text-align:left;background:transparent;border:0;padding:9px 12px;border-radius:8px;cursor:pointer;color:#e6eaee;font:inherit}
+.casebtn:hover{background:#1e2226}.casebtn.on{background:#1e2226;box-shadow:inset 3px 0 #e04d37}
+.casebtn b{color:#fff;font-size:13px;font-weight:600;display:block}
+.casebtn span{color:#8a939c;font-size:10px;text-transform:capitalize}
+.casebtn.on span{color:#e04d37}
+.sidefoot{margin-top:auto;padding:12px 8px 4px;color:#6b747d;font-size:10px;border-top:1px solid #23282d}
+.qrow{display:flex;justify-content:space-between;align-items:center;margin-top:16px}
+.qrow .navhead{margin:0 8px}
+.content{padding:22px 34px 60px;min-width:0}
+.muted{font-size:11px;color:#98a2b3}
+.panelhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.panelhead h2{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
+.grid2{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(260px,.95fr);gap:16px}
+.box{background:#fff;border:1px solid #e4e7ea;border-radius:12px;padding:20px}
+.box h3{margin:0 0 10px;font-size:13px;font-weight:600;color:#101828;text-transform:none}
+.terms{background:#f9fafb;border:1px solid #e4e7ea;border-radius:8px;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#344054;line-height:1.55;white-space:pre-wrap}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+th{color:#667085;font-size:10px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:6px 8px;border-bottom:1px solid #e4e7ea;font-weight:600}
+td{padding:8px;border-bottom:1px solid #f0f2f3;color:#101828}
+.fc{position:relative;display:flex;align-items:flex-end;gap:6px;height:90px;border-bottom:1px solid #e4e7ea;padding-bottom:2px}
+.bar{flex:1;background:#d9d0fb;border-radius:2px 2px 0 0}
+.bar.breach{background:#e04d37}
+.floor{position:absolute;left:0;right:0;border-top:2px dashed #c05353}
+.decision{margin-top:16px;background:#f9fafb;border:1px solid #e4e7ea;border-radius:10px;padding:14px 16px}
+.decision b{font-size:13px;color:#101828}
+.reasons{margin:8px 0 0;padding-left:18px;color:#475467;font-size:12.5px;line-height:1.6}
+.kv{font-size:12.5px;display:grid;grid-template-columns:150px 1fr;row-gap:6px;margin-top:6px}
+.kv b{font-weight:500;color:#667085}.kv span{color:#101828}
+.hash{font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;color:#98a2b3;margin-top:10px}
 .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-button.act{border:0;border-radius:9px;padding:10px 16px;font:inherit;font-size:13px;font-weight:650;cursor:pointer;background:#163d34;color:#fff}
-button.sec{background:#eef4f1;color:#163d34}button.warn{background:#f7ecec;color:#8c3a3a}button:disabled{opacity:.4;cursor:not-allowed}
-.kv{font-size:12px;color:#39423e;display:grid;grid-template-columns:150px 1fr;row-gap:5px}.kv b{font-weight:600}
-.hash{font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;color:#68746f}
-.txn{display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #edf1ee;font-size:12.5px}
-.ok{color:#1d6b4f;font-weight:650}.bad{color:#a03d3d;font-weight:650}
-.audit{margin-top:22px}.audit .row{display:flex;gap:10px;font-size:11.5px;color:#68746f;padding:5px 10px;border-bottom:1px solid #edf1ee}
-.audit .row b{color:#39423e;font-weight:600}
-.log{font-size:12px;color:#68746f;margin-top:10px}.log div{padding:3px 0}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#163d34;color:#fff;padding:10px 18px;border-radius:9px;font-size:13px;display:none}
+button.act{border:1px solid transparent;border-radius:8px;padding:10px 18px;font:500 13px Poppins,Inter,ui-sans-serif,sans-serif;cursor:pointer;background:#612fef;color:#fff}
+button.act:hover{background:#5319e0}
+button.sec{background:#fff;color:#344054;border-color:#d0d5dd}
+button.sec:hover{background:#f9fafb}
+button.warn{background:#fff;color:#b42318;border-color:#fecdca}
+button.warn:hover{background:#fef3f2}
+button:disabled{opacity:.5;cursor:not-allowed}
+.txn{display:flex;justify-content:space-between;padding:9px 4px;border-bottom:1px solid #f0f2f3;font-size:12.5px;color:#344054}
+.ok{color:#027a48;font-weight:600}.bad{color:#b42318;font-weight:600}
+.audit{margin-top:16px;background:#fff;border:1px solid #e4e7ea;border-radius:12px;padding:20px}
+.audit h3{margin:0 0 8px;font-size:13px;font-weight:600}
+.audit .row{display:flex;gap:10px;font-size:11px;color:#667085;padding:5px 4px;border-bottom:1px solid #f0f2f3}
+.audit .row b{color:#344054;font-weight:600}
+.log{font-size:12px;color:#667085;margin-top:12px}.log div{padding:3px 0}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#101828;color:#fff;padding:11px 20px;border-radius:8px;font-size:13px;display:none;box-shadow:0 4px 14px rgba(16,24,40,.25)}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}.side{position:static;min-height:0}.content{padding:18px}.grid2{grid-template-columns:1fr}}
 </style></head><body>
-<div class="shell">
-  <div class="top"><div class="brand"><div class="mark">IP</div><div>Intent Pilot</div></div><div class="muted">approval console - sandbox</div></div>
-  <div class="intro"><p class="eyebrow">INTENT-BOUND PURCHASE AGENT</p><h1>The card enforces the approved decision.</h1>
-  <p class="sub">The agent weighs annual against monthly against the cash forecast. A person approves the intent. The card's controls derive from that approval - change the deal and the card stops matching it.</p></div>
-  <div class="layout">
-    <div class="queue"><div class="qhead"><p class="eyebrow">QUEUE</p><button class="act sec" id="reset">Reset demo</button></div><div id="cases"></div></div>
-    <div class="card panel" id="panel"></div>
-  </div>
+<div class="strip">IntentPay console · running live against the Airwallex sandbox</div>
+<div class="wrap">
+  <aside class="side">
+    <div class="org"><span class="orgmark">IP</span><div class="orgt"><strong>IntentPay</strong><span>Intent-bound purchase agent</span></div></div>
+    <p class="navhead">Issuing</p>
+    <div class="navitem active">Purchase intents</div>
+    <div class="qrow"><p class="navhead">Queue</p><button class="act sec" id="reset" style="padding:5px 10px;font-size:11px">Reset demo</button></div>
+    <div id="cases"></div>
+    <div class="sidefoot">Connected to the Airwallex sandbox API</div>
+  </aside>
+  <main class="content"><div id="panel"></div></main>
 </div>
 <div class="toast" id="toast"></div>
 <script>
