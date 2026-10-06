@@ -24,6 +24,20 @@ The running example is the cash-crunch scenario: Acme Analytics Pro, $100/month 
 4. **Issue.** The card's controls derive from the approved intent and nothing else (`cardPayload`). The approval is re-verified against the live intent before issue, consumed once, and refused if the deal changed.
 5. **Enforce.** Authorizations clear or decline inside the card's controls. The simulator and the live Airwallex gateway implement the same `IssuingGateway` interface; `request_id` makes every mutation idempotent.
 
+![System architecture](docs/1-system-architecture.png)
+
+![Case and card lifecycle](docs/2-intent-lifecycle.png)
+
+![Approval binding](docs/3-approval-binding.png)
+
+![The governance gate](docs/4-governance-gate.png)
+
+## How it works in real life
+
+![The IRL user flow](docs/5-irl-user-flow.png)
+
+A finance lead sets policy once; ops pastes real vendor terms; the agent extracts under the governance gate; deterministic policy code picks the cadence with reasons; a person approves the intent in one click; the card issues with exactly those controls; renewals clear or decline at the rail with the rule named; settlement reconciles and the audit log holds every step. The full walkthrough is in [docs/user-flow.md](docs/user-flow.md).
+
 ## Why it is safe to hand money decisions to
 - **Decisions live in code.** The cadence math, the reserve floor, the card payload and the state machine are code and config. Where a model is switched on (see below), it extracts and proposes. It does not hold credentials and does not get the last word.
 - **Approvals are bound.** Terms hash first, then intent hash, policy version, expiry, nonce. A changed price, a swapped case, a replayed or expired approval is refused, and refusals are audited.
@@ -40,23 +54,6 @@ No Anthropic key? Any OpenAI-compatible endpoint works too: set `EXTRACTION_BASE
 **The model proposes. The gate decides.** `src/agent/planner.ts` gives the model two typed tools: `read_terms` (read only) and `propose_terms` (a proposal, nothing more). There is no tool that approves, issues or charges anything. The vendor terms are wrapped in `<vendor_terms>` and treated as data; an instruction inside them cannot change the outcome and is flagged as a warning.
 
 Every proposal passes `gate()`: schema validation, guardrails (no new facts - every number must appear in the terms text, the grounded forecast summary, or be plain arithmetic derived from them; citations must be real phrases; no promised outcomes; no links), a weighted rubric where code does the arithmetic (cash fit 40%, terms clarity 25%, vendor signals 20%, policy fit 15%), and reasoning checks that compare the model's scores and confidence with the structured facts. A proposal is accepted only when it agrees with the policy decision computed from its own extracted terms, or when it asks for a person. An optional veto-only critic fails closed on error. Rejections change nothing and are audited. See [docs/model-governance.md](docs/model-governance.md). Tested with a mock model and scripted proposals, plus live runs against an open-weights model (Qwen3.8 27B via Groq free tier). See the combo run below and RUNLOG.md for the honest record.
-
-## Console walkthrough
-Real captures from the simulated-sandbox console (loopback only):
-
-![Case queue: four scenarios awaiting review](docs/images/console-queue.png)
-
-![Terms review: vendor terms as untrusted text, forecast against the reserve floor, policy decision](docs/images/terms-review.png)
-
-![Approved intent: cadence, cap, currency, categories, terms hash](docs/images/intent-approved.png)
-
-![Card issued: controls mirror the approved intent](docs/images/card-issued.png)
-
-![Simulated authorizations: in-policy clears, over-cap, wrong currency and wrong category decline with the rule](docs/images/simulations.png)
-
-The governance gate gets the same treatment for model proposals:
-
-![Governance: untrusted vendor text is data, never instructions](docs/images/governance-gate.png)
 
 ## Live model run (open weights, 2026-10-06)
 
@@ -112,7 +109,7 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
     src/visa        TAP-style signature verification, VIC-shaped fixture adapter
     src/agent       model client, planner, rubric, guardrails, reasoning checks
     src/console     the review console (loopback only)
-    docs            model governance write-up and console captures
+    docs            model governance, workflow diagrams (.dot + render.sh), the IRL user flow
     evals           deterministic policy, simulation and governance scenarios
     scripts         live-run harnesses (extraction, sandbox) and the smoke test
     test/redteam    cross-layer attack tests

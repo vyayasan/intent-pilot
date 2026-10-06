@@ -1,0 +1,22 @@
+digraph gate {
+  graph [rankdir=LR, bgcolor="#fffaf0", pad="0.28", nodesep="0.34", ranksep="0.5", splines=polyline, fontname="Inter", labelloc=t, label="INTENT PILOT  /  THE GOVERNANCE GATE - THE MODEL PROPOSES, CODE DECIDES", fontsize=22, fontcolor="#183d32"];
+  node [shape=box, style="rounded,filled", color="#d8e2d8", fillcolor="#fffdf8", fontname="Inter", fontsize=11, fontcolor="#1d2a25", margin="0.16,0.12", penwidth=1.3];
+  edge [color="#35594b", penwidth=1.5, arrowsize=0.72, fontname="Inter", fontsize=9, fontcolor="#52675d"];
+  model [label="MODEL\nOpenAI-compatible, env-swappable\nTwo tools: read_terms · propose_terms\nTerms wrapped as data, never instructions", fillcolor="#f7eee5", color="#d9b18c", penwidth=1.6];
+  schema [label="SCHEMA VALIDATION\nTyped proposal or nothing"];
+  guards [label="GUARDRAILS\nNo new facts: numbers must appear in the terms\nor derive from them by plain arithmetic\nReal citations · bounded language · no links", fillcolor="#e8f0e8"];
+  rubric [label="RUBRIC - CODE DOES THE ARITHMETIC\nCash fit 40 · terms clarity 25\nvendor signals 20 · policy fit 15", fillcolor="#e8f0e8"];
+  reason [label="REASONING CHECKS\nScores vs structured facts\nconfidence vs rubric band", fillcolor="#e8f0e8"];
+  agree [label="POLICY AGREEMENT\nAccepted only when it matches the decision\ndeterministic policy computed from its\nown extracted terms - or it asks for a person", fillcolor="#dcebe0", color="#789b82", penwidth=1.6];
+  accept [label="ACCEPTED\nTerms adopted · still needs\nhuman intent approval", fillcolor="#dcebe0", color="#789b82"];
+  escalate [label="ESCALATE\nA person decides\nFail closed on any error", fillcolor="#f3ead8", color="#d7c8a8"];
+  reject [label="REJECTED\nChanges nothing · audited\nInjection wording flagged as data", fillcolor="#fae9e4", color="#d7897c"];
+  model -> schema;
+  schema -> guards;
+  guards -> rubric;
+  rubric -> reason;
+  reason -> agree;
+  agree -> accept [label="matches policy"];
+  agree -> escalate [label="asks for a person"];
+  agree -> reject [label="any violation"];
+}

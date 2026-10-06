@@ -1,0 +1,30 @@
+digraph architecture {
+  graph [rankdir=LR, bgcolor="#fffaf0", pad="0.28", nodesep="0.36", ranksep="0.58", splines=polyline, fontname="Inter", labelloc=t, label="INTENT PILOT  /  SYSTEM ARCHITECTURE", fontsize=22, fontcolor="#183d32"];
+  node [shape=box, style="rounded,filled", color="#d8e2d8", fillcolor="#fffdf8", fontname="Inter", fontsize=11, fontcolor="#1d2a25", margin="0.16,0.12", penwidth=1.3];
+  edge [color="#35594b", penwidth=1.5, arrowsize=0.72, fontname="Inter", fontsize=9, fontcolor="#52675d"];
+  reviewer [label="REVIEWER", fillcolor="#f3ead8", color="#d7c8a8", penwidth=1.6];
+  ui [label="CONSOLE PAGE\nQueue · policy decision · forecast vs floor"];
+  api [label="CONSOLE API\nGET cases · extract · approve · reject · simulate", fillcolor="#e8f0e8"];
+  policy [label="POLICY ENGINE\nAnnual vs monthly in deterministic code\nReserve floor · savings · reconsider date", fillcolor="#dcebe0", color="#789b82"];
+  intent [label="INTENT + APPROVAL BINDING\nHMAC over terms hash · intent hash\npolicy version · approver · expiry · nonce", fillcolor="#dcebe0", color="#789b82"];
+  gateway [label="IssuingGateway interface\ncreate · update · authorize", fillcolor="#e8f0e8"];
+  sim [label="IN-MEMORY SIMULATOR\nDefault console backend\nControls before funding · request_id dedup", fillcolor="#dcebe0", color="#789b82"];
+  aw [label="AIRWALLEX SANDBOX GATEWAY\nLiveGateway on the typed client\nUnit-tested on recorded sandbox shapes", style="rounded,filled,dashed", fillcolor="#fffdf8", color="#9ba8a0"];
+  card [label="CARD CONTROLS\nCap · currency · merchant categories\nThe decline names the policy rule", fillcolor="#f3ead8", color="#d7c8a8"];
+  model [label="MODEL LAYER (optional)\nOpenAI-compatible, env-swappable\nread_terms · propose_terms only", fillcolor="#f7eee5", color="#d9b18c"];
+  gate [label="GOVERNANCE GATE\nGuardrails · rubric · reasoning checks\nAccepted only if it agrees with policy", fillcolor="#f7eee5", color="#d9b18c"];
+  tap [label="TAP-STYLE VERIFY + VIC ADAPTER\nRFC 9421 signatures · fixture provider\nNo live Visa link", fillcolor="#f7eee5", color="#d9b18c"];
+  audit [label="AUDIT LOG\nAppend-only · hash-chained\ndecisions · approvals · refusals · verdicts", fillcolor="#fae9e4", color="#d7897c"];
+  reviewer -> ui [label="chooses"];
+  ui -> api [label="HTTP API"];
+  api -> policy [label="terms + forecast"];
+  policy -> api [label="cadence decision"];
+  api -> intent [label="approve"];
+  intent -> gateway [label="verified once · controls derive"];
+  gateway -> sim [label="default"];
+  gateway -> aw [style=dashed, label="adapter boundary"];
+  gateway -> card [label="issue + enforce"];
+  model -> gate [label="proposal only"];
+  gate -> api [label="accept / reject / escalate"];
+  api -> audit [label="every event"];
+}

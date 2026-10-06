@@ -1,0 +1,14 @@
+# Intent Pilot in real life - the user flow
+
+Who does what, in what order, for a real company paying a real vendor.
+
+1. **Setup (a person, once).** The finance lead connects the company's Airwallex account and sets the spending policy: the reserve floor, the cash forecast, allowed merchant categories and caps. This is the only configuration the agent ever gets - it is data, not instructions.
+2. **Purchase request (a person).** Someone in ops pastes the vendor's actual pricing text: "Acme Analytics Pro: $100 per month, or $984 per year billed upfront. 30 days notice. USD." That text is untrusted input, always.
+3. **Terms extraction (the agent).** A model reads the terms and proposes structured terms (prices, currency, notice, category). It works under the governance gate: numbers must come from the text or derive from it, citations must be real phrases, and an instruction buried in the terms is treated as data and flagged, never obeyed. If the terms are ambiguous or contradictory, the agent escalates instead of guessing.
+4. **The decision (deterministic code, not the model).** The policy engine weighs annual against monthly week by week against the forecast and the reserve floor, and returns the cadence with reasons and a reconsider date ("annual saves 18% but breaches the floor in week 7 - monthly; revisit at renewal"). The model can propose, but it never gets the last word.
+5. **Intent approval (a person).** The reviewer sees the decision, the evidence and the exact intent - cadence, amount cap, currency, categories - and approves with one click, or rejects with a required reason. The approval is HMAC-bound to the terms hash, the intent hash, the policy version, an expiry and a nonce. Change the deal afterwards and the approval stops matching it.
+6. **Card issued (the agent, on Airwallex).** A virtual card is created whose controls mirror the approved intent exactly: cap per transaction, currency allowlist, merchant categories. The approval is re-verified against the live intent at issue and consumed once.
+7. **Live authorization (the card rail).** The vendor charges the card at renewal. A charge inside the intent clears. Anything else - over cap, wrong currency, wrong category - declines, and the decline names the policy rule it broke. Even if everything upstream failed, the card cannot pay outside the approved intent.
+8. **Settlement and audit (the rail + code).** Clearing webhooks reconcile the charge. Every step - extraction verdict, decision, approval, issue, each authorization - sits in an append-only, hash-chained audit log. When the reconsider date arrives and the cash story has improved, the agent re-prompts the annual question with the new forecast.
+
+The split that makes it safe: the model reads and proposes; deterministic code decides; a person approves; the card enforces. No single layer can move money on its own.
