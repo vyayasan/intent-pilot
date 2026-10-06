@@ -37,3 +37,24 @@ Kit 2 live pass against the Airwallex sandbox, 2026-10-06. Credentials were held
 - Declines arrive as process_result DECLINED with named reasons seen live: LIMIT_EXCEEDED, CURRENCY_NOT_ALLOWED, MERCHANT_CATEGORY_NOT_ALLOWED, CARD_INACTIVE.
 
 Full machine-readable log: `runs/live-calls.jsonl`.
+
+## Live model extraction run (2026-10-06, open-weights)
+
+First real model through the extraction seam, replacing the mock layer. Provider: Groq free tier (OpenAI-compatible), model `qwen/qwen3.8-27b`, temperature 0, same `ModelClient` seam as Anthropic (`EXTRACTION_BASE_URL`/`EXTRACTION_MODEL`/`EXTRACTION_API_KEY`). Records: `runs/extraction-live-oss.jsonl`. Script: `scripts/extract-live.ts`.
+
+Results, all four demo cases, real model output:
+
+| case | extracted terms (model) | expected | gate verdict |
+|---|---|---|---|
+| acme | 100/984 USD, notice 30, category "Analytics" | 100/984 USD, notice 30, "software" | REJECTED: rationale carried derived numbers (1200, 12) |
+| flowdesk | 40/400 USD, notice 14, software | identical | REJECTED: rationale carried derived numbers (12, 480) |
+| northwind | 80/768 GBP, notice 30, analytics | identical | REJECTED: derived numbers (960, 12, 192) + cited policy context as if from terms |
+| pulsar | 150/null USD, notice 60, marketing | identical | REJECTED: derived numbers (450, 3) |
+
+Extraction accuracy: 3/4 exact on all five fields; acme's category inferred as "Analytics" (vendor name) where the fixture says "software" - raw terms name no category, so an inference, not a transcription error.
+
+Gate behavior: every rejection was the `no_new_facts`/`citations` guardrails firing on the model's RATIONALE (it writes derived arithmetic like monthly x 12 into the rationale text), never on wrong extracted terms. The system failed closed exactly as designed: terms stayed human-entered, every rejection is in the audit log.
+
+Operational notes: first attempt used model id `qwen/qwen3-32b` (404 - not in the current catalog; corrected to `qwen/qwen3.8-27b`). Free tier rate limit (tokens/min) forced spacing the four runs ~75s apart. `openai/gpt-oss-120b` rejected the tool-call shape with a 400 (recorded; not debugged).
+
+Follow-up worth doing: the `no_new_facts` guardrail currently treats simple derived arithmetic in the rationale as a new fact. Either teach the prompt to keep rationales free of derived numbers, or whitelist derivations from terms-text numbers. Logged in FINDINGS.md.

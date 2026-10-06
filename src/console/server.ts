@@ -16,7 +16,7 @@ const allowedOrigins = allowedHosts.map((h) => `http://${h}`);
 const live = process.env.AIRWALLEX_CLIENT_ID && process.env.AIRWALLEX_API_KEY
   ? new LiveIssuingGateway(new AirwallexClient({ clientId: process.env.AIRWALLEX_CLIENT_ID, apiKey: process.env.AIRWALLEX_API_KEY }))
   : undefined;
-// ANTHROPIC_API_KEY turns on the model extractor. Without it /api/extract answers 501 and terms stay human-entered.
+// A model (ANTHROPIC_API_KEY, or EXTRACTION_BASE_URL+EXTRACTION_MODEL for any OpenAI-compatible endpoint) turns on the model extractor. Without one /api/extract answers 501 and terms stay human-entered.
 const model = modelFromEnv();
 const api = createConsoleApi({ gateway: live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: randomBytes(32).toString("hex"), approver: "demo-reviewer", sessionToken, allowedOrigins, audit: new AuditLog("audit.jsonl") });
 const server = createServer(async (req, res) => {

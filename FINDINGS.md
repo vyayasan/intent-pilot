@@ -99,3 +99,13 @@ The freeze/unfreeze race could not be exercised because the gateway interface ha
 - `src/console/api.ts`: preset terms for all demo cases; Northwind and Pulsar cases.
 - `src/sim/simGateway.ts`, `src/gateway/live.ts`: `unfreezeCard`.
 - `package.json`: Vitest 5.0.3.
+
+## Live open-weights extraction (added 2026-10-06)
+
+The extraction layer now runs against a real open-weights model (Qwen3.8 27B via Groq's free OpenAI-compatible tier) behind the model-agnostic `ModelClient` seam - provider swap is env-only (`EXTRACTION_BASE_URL`/`EXTRACTION_MODEL`), Anthropic still wins when `ANTHROPIC_API_KEY` is set.
+
+Honest quality read from the first live run (details in RUNLOG.md):
+
+- Extraction is good: 3 of 4 cases extracted all five term fields exactly; the fourth differed only on category inference.
+- The governance gate rejected all four proposals, every time on rationale discipline (derived arithmetic and one case of citing policy context as terms), never on extracted-term accuracy. Fail-closed held: no model output reached the ledger without passing the gate.
+- New tuning finding: `no_new_facts` treats derived arithmetic in the rationale as fabricated facts. That is stricter than the intent (guard against invented vendor facts). Fix direction: prompt-side (ban derived numbers in rationales) or guardrail-side (whitelist derivable numbers). Deliberately NOT fixed silently before submission - the current behavior is safe (refuses) and the tradeoff deserves a decision, not a quiet patch.

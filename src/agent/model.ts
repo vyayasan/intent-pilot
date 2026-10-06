@@ -42,8 +42,75 @@ export class AnthropicModel implements ModelClient {
   }
 }
 
-/** Build the client from the environment, or return undefined when no key is set (the planner is then off). */
+/**
+ * Build the client from the environment, or return undefined when nothing is configured (the planner is then off).
+ * ANTHROPIC_API_KEY wins when both are set, so Claude drops back in without touching the open-weights config.
+ * The OpenAI-compatible path needs EXTRACTION_BASE_URL and EXTRACTION_MODEL; EXTRACTION_API_KEY is optional
+ * (local servers like Ollama take no key).
+ */
 export function modelFromEnv(env: Record<string, string | undefined> = process.env): ModelClient | undefined {
   const apiKey = env.ANTHROPIC_API_KEY;
-  return apiKey ? new AnthropicModel({ apiKey, model: env.ANTHROPIC_MODEL || undefined }) : undefined;
+  if (apiKey) return new AnthropicModel({ apiKey, model: env.ANTHROPIC_MODEL || undefined });
+  const baseUrl = env.EXTRACTION_BASE_URL; const model = env.EXTRACTION_MODEL;
+  return baseUrl && model ? new OpenAICompatibleModel({ baseUrl, model, apiKey: env.EXTRACTION_API_KEY }) : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible backend (Groq, OpenRouter, Ollama, vLLM, ...). Same seam:
+// the planner speaks Anthropic-shaped blocks, this class translates both ways.
+// Keys stay in a closure and are never logged, same discipline as above.
+export interface OpenAICompatibleOptions { baseUrl: string; model: string; apiKey?: string; fetchImpl?: typeof fetch; timeoutMs?: number }
+
+export class OpenAICompatibleModel implements ModelClient {
+  private readonly send: (body: string) => Promise<Response>;
+  private readonly model: string; private readonly timeoutMs: number;
+  constructor(o: OpenAICompatibleOptions) {
+    if (!o.baseUrl) throw new Error("a base URL is required");
+    if (!o.model) throw new Error("a model name is required");
+    const f = o.fetchImpl ?? fetch; const base = o.baseUrl.replace(/\/+$/, ""); const key = o.apiKey;
+    this.model = o.model; this.timeoutMs = o.timeoutMs ?? 60_000;
+    this.send = (body) => f(`${base}/chat/completions`, {
+      method: "POST", signal: AbortSignal.timeout(this.timeoutMs),
+      headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), "content-type": "application/json" }, body,
+    });
+  }
+
+  async step(req: ModelRequest): Promise<Block[]> {
+    const messages: unknown[] = [{ role: "system", content: req.system }];
+    for (const m of req.messages) {
+      if (typeof m.content === "string") { messages.push({ role: m.role, content: m.content }); continue; }
+      if (m.role === "assistant") {
+        const text = (m.content as Block[]).filter((b): b is Extract<Block, { type: "text" }> => b.type === "text").map((b) => b.text).join("\n");
+        const calls = (m.content as Block[]).filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use")
+          .map((b) => ({ id: b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) } }));
+        messages.push({ role: "assistant", content: text || null, ...(calls.length ? { tool_calls: calls } : {}) });
+      } else {
+        for (const b of m.content as Block[]) {
+          if (b.type === "tool_result") messages.push({ role: "tool", tool_call_id: b.tool_use_id, content: b.content });
+          else if (b.type === "text") messages.push({ role: "user", content: b.text });
+        }
+      }
+    }
+    const body = JSON.stringify({
+      model: this.model, messages, temperature: 0, max_tokens: 4096,
+      tools: req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+      tool_choice: "auto",
+    });
+    const r = await this.send(body);
+    const j: any = await r.json().catch(() => ({}));
+    // Only the status and provider error type are surfaced, never the request or its headers.
+    if (!r.ok) throw new Error(`model request failed: ${r.status} ${String(j?.error?.type ?? j?.error?.code ?? "error").slice(0, 60)}`);
+    const msg = j?.choices?.[0]?.message;
+    if (!msg) throw new Error("model response had no choices");
+    const blocks: Block[] = [];
+    if (typeof msg.content === "string" && msg.content.trim()) blocks.push({ type: "text", text: msg.content });
+    for (const call of msg.tool_calls ?? []) {
+      let input: unknown;
+      try { input = JSON.parse(call?.function?.arguments ?? "{}"); }
+      catch { blocks.push({ type: "text", text: "[tool call dropped: arguments were not valid JSON]" }); continue; }
+      blocks.push({ type: "tool_use", id: String(call.id), name: String(call?.function?.name ?? ""), input });
+    }
+    if (!blocks.length) blocks.push({ type: "text", text: "" });
+    return blocks;
+  }
 }
