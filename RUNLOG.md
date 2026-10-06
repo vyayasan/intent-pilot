@@ -4,28 +4,28 @@ Kit 2 live pass against the Airwallex sandbox, 2026-10-06. Credentials were held
 
 | Step | Detail | Result |
 |---|---|---|
-| wallet | USD 9999580, GBP 9998600 | funded |
+| wallet | USD 9999370, GBP 9997900 | funded |
 | cardholder create | demo-buyer@vyayasan.com | rejected duplicate (400 bad_request: The given email or mobile number is already associated with a cardholder.); reusing existing |
 | cardholder | 1edd6a88-74fa-4027-bca2-65cb5aab704f | reused (status READY) |
-| card Acme Analytics (monthly) | cada9226-faf5-479b-a35d-40da744ee7fd cap 100 USD [software] | created |
-| card Flowdesk (annual) | 147f47fd-5ca7-4ad1-bcbe-51443457cc4b cap 400 USD [software] | created |
-| card Northwind CRM (annual, GBP) | 1a754494-d934-4d27-b196-ea18e427ab0f cap 768 GBP [analytics] | created |
-| acme in-policy | 90 USD software | accepted PENDING (01a11086-ff76-7000-9087-d1c17d22906e) - expected accept |
+| card Acme Analytics (monthly) | 124fd32d-bdd3-4b76-873a-c8e2ad818748 cap 100 USD [software] | created |
+| card Flowdesk (annual) | e986c993-0d13-4ef0-b7fc-2e2d082dc2bf cap 400 USD [software] | created |
+| card Northwind CRM (annual, GBP) | f609d7c4-33cc-4093-8ea0-62efcf2da033 cap 768 GBP [analytics] | created |
+| acme in-policy | 90 USD software | accepted PENDING (01a11144-06f8-7000-b206-c49de18ed874) - expected accept |
 | acme over-cap | 150 USD software | declined LIMIT_EXCEEDED - expected decline above cap |
 | acme wrong currency | 50 GBP software | declined CURRENCY_NOT_ALLOWED - expected decline currency |
 | acme wrong category | 50 USD marketing | declined MERCHANT_CATEGORY_NOT_ALLOWED - expected decline category |
-| idempotency probe | first 01a11087-37c2-7000-8213-e699f998bed5 second 01a11087-4157-7000-bdb1-48ca150d7056 | documented finding: the simulator authorization endpoint does not dedup request ids |
-| freeze verification | 147f47fd-5ca7-4ad1-bcbe-51443457cc4b | card_status INACTIVE |
+| idempotency probe | first 01a11144-3c17-7000-ae50-a3dfb9f4ce3f second 01a11144-4a07-7000-8d68-dd803ad38e65 | documented finding: the simulator authorization endpoint does not dedup request ids |
+| freeze verification | e986c993-0d13-4ef0-b7fc-2e2d082dc2bf | card_status INACTIVE |
 | flowdesk while frozen | 120 USD software | declined CARD_INACTIVE - expected decline frozen |
-| unfreeze verification | 147f47fd-5ca7-4ad1-bcbe-51443457cc4b | card_status ACTIVE |
-| flowdesk after unfreeze | 120 USD software | accepted PENDING (01a11087-6351-7000-ae7a-c1ac9c8ab075) - expected accept |
-| northwind in-policy | 700 GBP analytics | accepted PENDING (01a11087-6cfe-7000-b1aa-94bed949dc8c) - expected accept |
+| unfreeze verification | e986c993-0d13-4ef0-b7fc-2e2d082dc2bf | card_status ACTIVE |
+| flowdesk after unfreeze | 120 USD software | accepted PENDING (01a11144-6b74-7000-a832-dbc69c58d550) - expected accept |
+| northwind in-policy | 700 GBP analytics | accepted PENDING (01a11144-794e-7000-a484-fa8a46647076) - expected accept |
 | northwind over-cap | 800 GBP analytics | declined LIMIT_EXCEEDED - expected decline above cap |
 | northwind wrong category | 100 GBP software | declined MERCHANT_CATEGORY_NOT_ALLOWED - expected decline category |
-| capture acme | 01a11086-ff76-7000-9087-d1c17d22906e | CLEARING |
-| capture flowdesk | 01a11087-6351-7000-ae7a-c1ac9c8ab075 | CLEARING |
-| capture northwind | 01a11087-6cfe-7000-b1aa-94bed949dc8c | CLEARING |
-| list transactions | 54 on account | visible |
+| capture acme | 01a11144-06f8-7000-b206-c49de18ed874 | CLEARING |
+| capture flowdesk | 01a11144-6b74-7000-a832-dbc69c58d550 | CLEARING |
+| capture northwind | 01a11144-794e-7000-a484-fa8a46647076 | CLEARING |
+| list transactions | 65 on account | visible |
 
 ## API behaviour worth knowing
 
@@ -37,27 +37,6 @@ Kit 2 live pass against the Airwallex sandbox, 2026-10-06. Credentials were held
 - Declines arrive as process_result DECLINED with named reasons seen live: LIMIT_EXCEEDED, CURRENCY_NOT_ALLOWED, MERCHANT_CATEGORY_NOT_ALLOWED, CARD_INACTIVE.
 
 Full machine-readable log: `runs/live-calls.jsonl`.
-
-## Live model extraction run (2026-10-06, open-weights)
-
-First real model through the extraction seam, replacing the mock layer. Provider: Groq free tier (OpenAI-compatible), model `qwen/qwen3.8-27b`, temperature 0, same `ModelClient` seam as Anthropic (`EXTRACTION_BASE_URL`/`EXTRACTION_MODEL`/`EXTRACTION_API_KEY`). Records: `runs/extraction-live-oss.jsonl`. Script: `scripts/extract-live.ts`.
-
-Results, all four demo cases, real model output:
-
-| case | extracted terms (model) | expected | gate verdict |
-|---|---|---|---|
-| acme | 100/984 USD, notice 30, category "Analytics" | 100/984 USD, notice 30, "software" | REJECTED: rationale carried derived numbers (1200, 12) |
-| flowdesk | 40/400 USD, notice 14, software | identical | REJECTED: rationale carried derived numbers (12, 480) |
-| northwind | 80/768 GBP, notice 30, analytics | identical | REJECTED: derived numbers (960, 12, 192) + cited policy context as if from terms |
-| pulsar | 150/null USD, notice 60, marketing | identical | REJECTED: derived numbers (450, 3) |
-
-Extraction accuracy: 3/4 exact on all five fields; acme's category inferred as "Analytics" (vendor name) where the fixture says "software" - raw terms name no category, so an inference, not a transcription error.
-
-Gate behavior: every rejection was the `no_new_facts`/`citations` guardrails firing on the model's RATIONALE (it writes derived arithmetic like monthly x 12 into the rationale text), never on wrong extracted terms. The system failed closed exactly as designed: terms stayed human-entered, every rejection is in the audit log.
-
-Operational notes: first attempt used model id `qwen/qwen3-32b` (404 - not in the current catalog; corrected to `qwen/qwen3.8-27b`). Free tier rate limit (tokens/min) forced spacing the four runs ~75s apart. `openai/gpt-oss-120b` rejected the tool-call shape with a 400 (recorded; not debugged).
-
-Follow-up worth doing: the `no_new_facts` guardrail currently treats simple derived arithmetic in the rationale as a new fact. Either teach the prompt to keep rationales free of derived numbers, or whitelist derivations from terms-text numbers. Logged in FINDINGS.md.
 
 ## Live combo run - 2026-10-06 (post guardrail tuning)
 

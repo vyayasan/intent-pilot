@@ -74,7 +74,7 @@ Provider is config, not code: `EXTRACTION_BASE_URL` / `EXTRACTION_MODEL` / `EXTR
 - **160 automated tests** cover policy math, intent hashing, bound approvals, the card state machine, the simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
 - **55 deterministic eval scenarios** pass (`npm run evals`, results in [evals/RESULTS.md](evals/RESULTS.md)): policy boundaries and fail-closed inputs, card-control declines, and scripted model proposals through the governance gate.
 - The **simulator** mirrors the sandbox semantics we rely on: inclusive per-transaction limits, controls before funding, decline reasons named after the policy rule, `request_id` dedup, separate card and transfer state machines.
-- Not yet done: a live Airwallex sandbox run for Kit 2 (the gateway client and status mapping are unit-tested with recorded shapes). The Kit 4 live model run is done (Qwen3.8 via Groq free tier, results in RUNLOG.md).
+- Live Airwallex sandbox run done for Kit 2 (2026-10-06): real cardholder, three virtual cards with controls mirroring approved intents, simulated authorizations passing and failing with named decline reasons, freeze/unfreeze, captures CLEARING. Full log in [RUNLOG.md](RUNLOG.md), raw calls in `runs/live-calls.jsonl`.
 
 ## Run the console (simulated sandbox)
 Needs Node 20+.
@@ -98,7 +98,7 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
 - The governance gate, policy math and card controls are deterministic code; the model only extracts and proposes, and rejections fail closed to a person.
 - The live model runs above used a free tier with a 1000 output-tokens/minute cap, so scenarios run about a minute apart; that is an ops limit, not a system one.
 - The Visa-side modules (TAP-style signature verification, VIC-shaped instruction adapter) run against fixtures. No live Visa integration is claimed.
-- The Airwallex issuing gateway is unit-tested against recorded sandbox shapes; a live sandbox swipe run is the remaining milestone.
+- The Airwallex issuing gateway ran live against the sandbox on 2026-10-06 (see RUNLOG.md). One documented sandbox finding: the simulator authorization endpoint does not deduplicate request ids; the control plane does.
 
 ## Layout
     src/policy      the cadence decision and the card payload
