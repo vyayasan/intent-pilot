@@ -44,6 +44,8 @@ export interface CaseView {
 
 export interface ConsoleApiOptions {
   gateway?: IssuingGateway;
+  /** Factory used on demo reset so a live console stays live; defaults to the simulator. */
+  makeGateway?: () => IssuingGateway;
   /** Optional model-backed extractor. It proposes terms; governance gates them; a person still approves the intent. */
   planner?: (kase: PurchaseCase, forecast: { weeklyBalances: number[]; reserveFloor: number }) => Promise<PlanResult>;
   key?: string;
@@ -150,7 +152,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
     }
     if (url.pathname === "/api/cases" && request.method === "GET") return json({ cases: await Promise.all(cases.map(view)), audit: audit.list() });
     if (url.pathname === "/api/reset-demo" && request.method === "POST") {
-      gateway = makeSim(); holderId = undefined; cases = demoCases(); audit.append("reset", {});
+      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = demoCases(); audit.append("reset", {});
       return json({ cases: cases.map(view) });
     }
     if (url.pathname === "/api/approve" && request.method === "POST") {
