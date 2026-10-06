@@ -95,10 +95,10 @@ if (match) {
 }
 
 scene("5", "AT THE RAIL - the card enforces what the person approved");
-const attempt = async (label: string, auth: { amount: number; currency: string; merchant: string; category: string }, expect: string) => {
+const attempt = async (label: string, auth: { amount: number; currency: string; merchant: string; category: string }, expect: string, sc = "5") => {
   const t = await gw.authorize(card.id, auth, `kit2-demo:auth:${label}:${Date.now()}`);
   const accepted = t.status !== "FAILED";
-  rec("5", label, `$${auth.amount} ${auth.currency} [${auth.category}]`, accepted ? `ACCEPTED (${t.id}) - expected ${expect}` : `DECLINED ${t.failureReason} - expected ${expect}`, accepted ? "ok" : "declined");
+  rec(sc, label, `$${auth.amount} ${auth.currency} [${auth.category}]`, accepted ? `ACCEPTED (${t.id}) - expected ${expect}` : `DECLINED ${t.failureReason} - expected ${expect}`, accepted ? "ok" : "declined");
   return t;
 };
 const okAuth = await attempt("the approved purchase", { amount: 984, currency: "USD", merchant: "Acme Analytics", category: "software" }, "accept");
@@ -109,7 +109,7 @@ await attempt("wrong category", { amount: 100, currency: "USD", merchant: "Acme 
 scene("6", "KILL SWITCH - the person stays in charge");
 await gw.freezeCard(card.id, `kit2-demo:freeze:${Date.now()}`);
 rec("6", "freeze", card.id, "card frozen on Airwallex", "info");
-await attempt("attempt while frozen", { amount: 100, currency: "USD", merchant: "Acme Analytics", category: "software" }, "decline CARD_INACTIVE");
+await attempt("attempt while frozen", { amount: 100, currency: "USD", merchant: "Acme Analytics", category: "software" }, "decline CARD_INACTIVE", "6");
 await gw.unfreezeCard(card.id, `kit2-demo:unfreeze:${Date.now()}`);
 rec("6", "unfreeze", card.id, "card active again", "info");
 
@@ -124,6 +124,15 @@ rec("7", "transactions", `${txns.length} visible on the sandbox account`, "every
 // Replay page: self-contained, styled for screen recording. Every row above is a real sandbox response.
 const chip = (t: Row["tone"]) => ({ ok: "#1a7f4b", declined: "#b3382e", refused: "#b3382e", info: "#4a5560" })[t];
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const TITLES: Record<string, string> = {
+  "1": "THE CONTRACT ARRIVES - NOBODY PASTES",
+  "2": "POLICY DECIDES - CODE, NOT A MODEL",
+  "3": "A PERSON APPROVES - BOUND TO THE EXACT INTENT",
+  "4": "THE CARD IS ISSUED - CONTROLS COME FROM THE APPROVAL",
+  "5": "AT THE RAIL - THE CARD ENFORCES THE APPROVAL",
+  "6": "KILL SWITCH - THE PERSON STAYS IN CHARGE",
+  "7": "ON THE RECORD",
+};
 const scenes = [...new Set(rows.map((r) => r.scene))];
 const html = ["<!doctype html><meta charset=utf-8><title>IntentPay - live sandbox demo</title>",
   `<body style="margin:0;background:#fffaf0;color:#1d2a25;font:16px/1.5 Inter,system-ui,sans-serif"><main style="max-width:960px;margin:0 auto;padding:48px 24px">`,
@@ -134,7 +143,7 @@ const html = ["<!doctype html><meta charset=utf-8><title>IntentPay - live sandbo
     const sceneRows = rows.filter((r) => r.scene === s);
     return [
       `<section style="background:#fffdf8;border:1px solid #d8e2d8;border-radius:14px;padding:20px 24px;margin:22px 0">`,
-      `<h2 style="font-size:19px;margin:0 0 12px">SCENE ${esc(s)}</h2>`,
+      `<h2 style="font-size:19px;margin:0 0 12px">SCENE ${esc(s)} - ${esc(TITLES[s] ?? "")}</h2>`,
       ...sceneRows.map((r) => `<div style="display:flex;gap:12px;padding:8px 0;border-top:1px solid #eee7d8"><span style="min-width:120px;font-weight:600">${esc(r.step)}</span><span style="flex:1;color:#52675d">${esc(r.detail)}</span><span style="font-weight:600;color:${chip(r.tone)}">${esc(r.result)}</span></div>`),
       `</section>`,
     ].join("\n");
