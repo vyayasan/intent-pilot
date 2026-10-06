@@ -21,6 +21,7 @@ export interface IssuingGateway {
   createCardholder(req: { name: string; email: string }, requestId?: string): Maybe<Cardholder>;
   createCard(req: { cardholderId: string; controls: { amountLimit: number; currencyAllowlist: string[]; merchantCategories: string[] } }, requestId?: string): Maybe<Card>;
   freezeCard(cardId: string, requestId?: string): Maybe<Card>;
+  unfreezeCard(cardId: string, requestId?: string): Maybe<Card>;
   authorize(cardId: string, auth: AuthorizationRequest, requestId?: string): Maybe<CardTransaction>;
   capture(transactionId: string, requestId?: string): Maybe<CardTransaction>;
   reverse(transactionId: string, requestId?: string): Maybe<CardTransaction>;
@@ -83,6 +84,12 @@ export function makeSim(opts: { walletBalance?: number } = {}): SimGateway & { w
       const c = cards.get(cardId);
       if (!c) throw new Error("card not found");
       c.status = "FROZEN";
+      return c;
+    }),
+    unfreezeCard: (cardId, requestId) => idem(requestId, () => {
+      const c = cards.get(cardId);
+      if (!c) throw new Error("card not found");
+      c.status = "ACTIVE";
       return c;
     }),
     authorize: (cardId, auth, requestId) => idem(requestId, () => {

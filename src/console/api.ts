@@ -74,9 +74,34 @@ export function demoCases(): CaseState[] {
     kase: {
       id: "case_flowdesk", vendor: "Flowdesk",
       rawTerms: "Flowdesk Team plan. Monthly billing: 40 USD per month. Annual billing: 400 USD per year, paid in advance. Cancel monthly plans with 14 days notice. Category: software.",
+      terms: { monthlyPrice: 40, annualPrice: 400, currency: "USD", category: "software", noticeDays: 14 },
     },
     forecast: {
       weeklyBalances: [3000, 3050, 3100, 3150, 3200, 3250, 3300, 3350, 3400, 3450, 3500, 3550],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }, {
+    kase: {
+      id: "case_northwind", vendor: "Northwind CRM",
+      rawTerms: "Northwind CRM Business: 80 GBP per month, or 768 GBP per year billed upfront (save 20%). 30 days notice on monthly plans. Category: analytics.",
+      terms: { monthlyPrice: 80, annualPrice: 768, currency: "GBP", category: "analytics", noticeDays: 30 },
+    },
+    forecast: {
+      weeklyBalances: [2800, 2850, 2900, 2950, 3000, 3050, 3100, 3150, 3200, 3250, 3300, 3350],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }, {
+    kase: {
+      id: "case_pulsar", vendor: "Pulsar Ads",
+      rawTerms: "Pulsar Ads: 150 USD per month. Annual pricing on request - talk to sales. 60 days notice. Category: marketing.",
+      terms: { monthlyPrice: 150, annualPrice: null, currency: "USD", category: "marketing", noticeDays: 60 },
+    },
+    forecast: {
+      weeklyBalances: [1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200],
       reserveFloor: 500,
     },
     transactionIds: [],

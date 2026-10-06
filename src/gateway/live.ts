@@ -57,6 +57,11 @@ export class LiveIssuingGateway implements IssuingGateway {
     return { id: j.id ?? cardId, cardholderId: j.cardholder_id ?? "", controls: { amountLimit: 0, currencyAllowlist: [], merchantCategories: [] }, status: "FROZEN" };
   }
 
+  async unfreezeCard(cardId: string, requestId?: string): Promise<Card> {
+    const j = await this.client.updateCard(cardId, { status: "ACTIVE" }, requestId);
+    return { id: j.id ?? cardId, cardholderId: j.cardholder_id ?? "", controls: { amountLimit: 0, currencyAllowlist: [], merchantCategories: [] }, status: "ACTIVE" };
+  }
+
   async authorize(cardId: string, auth: AuthorizationRequest, requestId?: string): Promise<CardTransaction> {
     const j = await this.client.simCreateAuthorization({
       card_id: cardId, amount: auth.amount, currency: auth.currency,

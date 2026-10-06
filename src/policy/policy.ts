@@ -63,6 +63,8 @@ export function decide(terms: Terms, forecast: CashForecast, pol: Policy, now = 
     return out("ESCALATE", [`invalid price in terms (${prices.map((p) => String(p)).join("/")}): a person must check the source data`]);
   if (!/^[A-Z]{3}$/.test(terms.currency))
     return out("ESCALATE", [`unrecognised currency code "${String(terms.currency).slice(0, 12)}": reserve math is not defined for it`]);
+  if (terms.monthlyPrice === 0 || terms.annualPrice === 0)
+    return out("ESCALATE", ["a zero price is a trial or a data error: a person must read what the price becomes"]);
   if (terms.monthlyPrice == null || terms.annualPrice == null)
     return out("ESCALATE", ["terms are missing a monthly or annual price: a person must read the vendor page"]);
   if (!Number.isFinite(forecast.reserveFloor) || forecast.reserveFloor < 0 || forecast.weeklyBalances.length === 0)

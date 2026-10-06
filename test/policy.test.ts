@@ -53,6 +53,11 @@ describe("cadence decision", () => {
     expect(decide(terms, { weeklyBalances: [], reserveFloor: floor, breachWeek: null }, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
   });
 
+  it("fails closed on a zero price: a trial or a data error", () => {
+    expect(decide({ ...terms, monthlyPrice: 0 }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
+    expect(decide({ ...terms, annualPrice: 0 }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
+  });
+
   it("computes breach weeks from the projection", () => {
     expect(breachWeek(balances, terms, "annual", floor, DEFAULT_POLICY)).toBe(6); // raw 0-based index
     expect(breachWeek(balances, terms, "monthly", floor, DEFAULT_POLICY)).toBeNull();
