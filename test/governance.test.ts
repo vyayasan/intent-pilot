@@ -10,7 +10,7 @@ const kase: PurchaseCase = {
   id: "case_acme", vendor: "Acme Analytics",
   rawTerms: "Acme Analytics Pro: $100 per month, or $984 per year billed upfront (save 18%). 30 days notice on monthly plans. Billed in USD. Category: software.",
 };
-const forecast = { weeklyBalances: [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400], reserveFloor: 500 };
+const forecast = { weeklyBalances: [1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400, 1400], reserveFloor: 500 };
 const NOW = new Date("2026-10-06T09:00:00Z");
 
 const baseScores = { score: 3, cites: ["$100 per month"], note: "the text says so" };

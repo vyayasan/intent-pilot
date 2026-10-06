@@ -5,10 +5,11 @@ import type { CashForecast, Terms } from "../src/domain/types.js";
 
 // The Builder Guide scenario: annual costs 18% less but breaches the reserve floor in week 7.
 const terms: Terms = { monthlyPrice: 100, annualPrice: 984, currency: "USD", category: "software", noticeDays: 30 };
-// Baseline sits just above the floor: an upfront 984 drops week 7 below it, 100 every 4 weeks does not.
+// Baseline sits just above the floor: an upfront 984 drops the seventh week below it, 100 every 4 weeks does not.
 const floor = 500;
-// Weeks 0-6 absorb the 984 annual hit (1500 - 984 = 516 >= 500); week 7 does not (1400 - 984 = 416 < 500).
-const balances = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400];
+// Weeks one to six absorb the 984 annual hit (1500 - 984 = 516 >= 500); week seven does not (1400 - 984 = 416 < 500).
+// Reported week numbers are 1-based, matching the guide's prose; raw breachWeek/reconsiderWeek stay 0-based indexes.
+const balances = [1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400, 1400];
 const forecast: CashForecast = { weeklyBalances: balances, reserveFloor: floor, breachWeek: null };
 const now = new Date("2026-10-06T09:00:00Z");
 
@@ -34,9 +35,9 @@ describe("cadence decision", () => {
     const recovering = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1500, 1600, 1700, 1800];
     const d = decide(terms, { weeklyBalances: recovering, reserveFloor: floor, breachWeek: null }, DEFAULT_POLICY, now);
     expect(d.cadence).toBe("monthly");
-    expect(d.annualBreachWeek).toBe(7);
+    expect(d.annualBreachWeek).toBe(8); // index 7, reported 1-based
     expect(d.reconsiderAt).not.toBeNull();
-    expect(reconsiderWeek(recovering, 984, floor)).toBe(8);
+    expect(reconsiderWeek(recovering, 984, floor)).toBe(8); // raw 0-based index
   });
 
   it("escalates when both cadences breach", () => {
@@ -53,7 +54,7 @@ describe("cadence decision", () => {
   });
 
   it("computes breach weeks from the projection", () => {
-    expect(breachWeek(balances, terms, "annual", floor, DEFAULT_POLICY)).toBe(7);
+    expect(breachWeek(balances, terms, "annual", floor, DEFAULT_POLICY)).toBe(6); // raw 0-based index
     expect(breachWeek(balances, terms, "monthly", floor, DEFAULT_POLICY)).toBeNull();
   });
 });

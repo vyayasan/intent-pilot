@@ -65,7 +65,7 @@ export function demoCases(): CaseState[] {
       terms,
     },
     forecast: {
-      weeklyBalances: [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400],
+      weeklyBalances: [1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400, 1400],
       reserveFloor: 500,
     },
     transactionIds: [],

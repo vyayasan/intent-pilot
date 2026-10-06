@@ -88,9 +88,10 @@ export function gate(p: Proposal, c: PurchaseCase, forecast: { weeklyBalances: n
   const gov: NonNullable<GateResult["governance"]> = { guardrailViolations: [], reasoningViolations: [], warnings: [] };
   const reject = (...reasons: string[]): GateResult => ({ accepted: false, finalCadence: pol.cadence, reasons, policy: pol, governance: gov });
 
-  const annualBreach = t.monthlyPrice != null && t.annualPrice != null
+  const b0 = t.monthlyPrice != null && t.annualPrice != null
     ? breachWeek(forecast.weeklyBalances.slice(0, policy.forecastWeeks), { ...t }, "annual", forecast.reserveFloor, policy)
     : null;
+  const annualBreach = b0 == null ? null : b0 + 1; // 1-based, matching CadenceDecision
 
   // Layer 1: guardrails. Layer 2: rubric. Layer 3: reasoning checks. Then policy compares cadences.
   const g = checkGuardrails(p, c, { extraNumbers: [pol.annualBreachWeek, pol.monthlyBreachWeek, pol.savingsPct, forecast.reserveFloor, ...forecast.weeklyBalances] });

@@ -1,6 +1,6 @@
 # Kit 2 Eval Results
 
-Run: 2026-10-06T08:36:51.803Z (fixture clock 2026-10-06T12:00:00.000Z)
+Run: 2026-10-06T09:08:38.694Z (fixture clock 2026-10-06T12:00:00.000Z)
 
 **35/35 scenarios pass.** Deterministic fixtures only; no live model, no live API.
 
@@ -24,7 +24,7 @@ Run: 2026-10-06T08:36:51.803Z (fixture clock 2026-10-06T12:00:00.000Z)
 | Scenario | Expected | Actual | Pass |
 |---|---|---|---|
 | breach-at-floor-boundary | annual | annual | yes |
-| breach-week-zero | monthly | monthly | yes |
+| breach-week-one | monthly | monthly | yes |
 | short-forecast | annual | annual | yes |
 
 ## policy/fail closed (6/6)
@@ -99,9 +99,9 @@ Run: 2026-10-06T08:36:51.803Z (fixture clock 2026-10-06T12:00:00.000Z)
 - **guide-scenario** (Annual saves 18% but breaches the floor in week 7): The kit's own scenario: monthly keeps cash free, annual breaches in week 7.
 - **rich-annual** (Healthy cash: annual wins): No breach under annual billing, and it is cheaper.
 - **poor-escalate** (Tight cash: both cadences breach): Monthly also breaches the floor quickly; a person must decide.
-- **recovering-reconsider** (Cash recovers in week 8): From week 8 the cash absorbs the annual price, so a reconsider date is recorded.
+- **recovering-reconsider** (Cash recovers in week 9): From week 9 the cash absorbs the annual price, so a reconsider date is recorded.
 - **breach-at-floor-boundary** (Balance equal to the floor is not a breach): 1400 - 900 = 500 equals the floor; only a drop below breaches.
-- **breach-week-zero** (Annual upfront hit breaches immediately): Week 0 cannot absorb the annual price even though later weeks can.
+- **breach-week-one** (Annual upfront hit breaches immediately): Week one cannot absorb the annual price even though later weeks can.
 - **short-forecast** (Projection covers only 4 weeks): A shorter projection is used as-is; the horizon is the smaller of policy and projection, and nothing is invented beyond it.
 - **no-discount-annual** (Annual price is not a discount): Annual equals twelve monthly payments; savings are 0% but cash is healthy, so the cheaper-or-equal cadence still wins. A guardrail warning flags the oddity.
 - **nan-price** (NaN monthly price): Malformed price: a person must check the source data.

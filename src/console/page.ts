@@ -68,8 +68,8 @@ function render() {
   var maxB = Math.max.apply(null, currentForecast(c));
   var bars = currentForecast(c).map(function(b, w){
     var h = Math.round(70 * b / (maxB || 1));
-    var breach = d.cadence !== 'ESCALATE' && d.annualBreachWeek === w;
-    return '<div class="bar' + (breach ? ' breach' : '') + '" style="height:' + h + 'px" title="week ' + w + ': ' + b + '"></div>';
+    var breach = d.cadence !== 'ESCALATE' && d.annualBreachWeek === w + 1;
+    return '<div class="bar' + (breach ? ' breach' : '') + '" style="height:' + h + 'px" title="week ' + (w + 1) + ': ' + b + '"></div>';
   }).join('');
   var txns = c.transactions.map(function(t){
     var ok = t.status === 'CLEARING' || t.status === 'PENDING';

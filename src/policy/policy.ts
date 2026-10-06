@@ -17,6 +17,7 @@ export interface CadenceDecision {
   cadence: Cadence | "ESCALATE";
   reasons: string[];
   savingsPct: number | null; // annual vs monthly over the horizon
+  /** 1-based week numbers ("week seven" is the seventh week of the projection), matching the guide's prose. */
   annualBreachWeek: number | null;
   monthlyBreachWeek: number | null;
   reconsiderAt: string | null; // ISO date when the annual choice deserves a second look
@@ -35,7 +36,7 @@ function adjustedBalances(base: number[], terms: Terms, cadence: Cadence, pol: P
 }
 const chargesUpTo = (week: number, monthly: number, every: number) => (Math.floor(week / every) + 1) * monthly;
 
-/** First week the adjusted balance drops below the reserve floor, or null. */
+/** First projection index (0-based) whose adjusted balance drops below the reserve floor, or null. Callers presenting to people add 1. */
 export function breachWeek(base: number[], terms: Terms, cadence: Cadence, floor: number, pol: Policy): number | null {
   const adj = adjustedBalances(base, terms, cadence, pol);
   if (!adj) return null;
@@ -71,8 +72,10 @@ export function decide(terms: Terms, forecast: CashForecast, pol: Policy, now = 
   const base = forecast.weeklyBalances.slice(0, horizon);
   const floor = forecast.reserveFloor;
 
-  const annualBreachWeek = breachWeek(base, terms, "annual", floor, pol);
-  const monthlyBreachWeek = breachWeek(base, terms, "monthly", floor, pol);
+  const a0 = breachWeek(base, terms, "annual", floor, pol);
+  const m0 = breachWeek(base, terms, "monthly", floor, pol);
+  const annualBreachWeek = a0 == null ? null : a0 + 1; // 1-based for people
+  const monthlyBreachWeek = m0 == null ? null : m0 + 1;
   const yearlyMonthly = terms.monthlyPrice * 12;
   const savingsPct = Math.round(((yearlyMonthly - terms.annualPrice) / yearlyMonthly) * 1000) / 10;
 
@@ -80,11 +83,11 @@ export function decide(terms: Terms, forecast: CashForecast, pol: Policy, now = 
     return out("ESCALATE", [`both cadences breach the reserve floor (annual week ${annualBreachWeek}, monthly week ${monthlyBreachWeek}): a person decides`], { savingsPct, annualBreachWeek, monthlyBreachWeek });
 
   if (annualBreachWeek != null) {
-    const rw = reconsiderWeek(base, terms.annualPrice, floor);
+    const rw = reconsiderWeek(base, terms.annualPrice, floor); // 0-based index; the date marks the start of that week
     const reconsiderAt = rw == null ? null : new Date(now.getTime() + rw * 7 * 86_400_000).toISOString().slice(0, 10);
     return out("monthly", [
       `annual saves ${savingsPct}% but breaches the reserve floor in week ${annualBreachWeek}`,
-      reconsiderAt ? `cash can absorb the annual price from week ${rw}: reconsider on ${reconsiderAt}` : "cash never absorbs the annual price inside the forecast: revisit at renewal",
+      rw == null ? "cash never absorbs the annual price inside the forecast: revisit at renewal" : `cash can absorb the annual price from week ${rw + 1}: reconsider on ${reconsiderAt}`,
     ], { savingsPct, annualBreachWeek, monthlyBreachWeek, reconsiderAt });
   }
 
