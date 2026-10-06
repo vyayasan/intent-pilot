@@ -64,3 +64,21 @@ export interface PurchaseCase {
   forecast?: CashForecast;
   intent?: PurchaseIntent;
 }
+
+export type CardStatus = "ACTIVE" | "FROZEN";
+
+export interface Cardholder { id: string; name: string; email: string }
+
+export interface Card {
+  id: string;
+  cardholderId: string;
+  controls: CardControls;
+  status: CardStatus;
+}
+
+export interface AuthorizationRequest {
+  amount: number;
+  currency: string;
+  merchant: string;
+  category: string;
+}
