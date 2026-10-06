@@ -41,6 +41,23 @@ No Anthropic key? Any OpenAI-compatible endpoint works too: set `EXTRACTION_BASE
 
 Every proposal passes `gate()`: schema validation, guardrails (no new facts - every number must appear in the terms text, the grounded forecast summary, or be plain arithmetic derived from them; citations must be real phrases; no promised outcomes; no links), a weighted rubric where code does the arithmetic (cash fit 40%, terms clarity 25%, vendor signals 20%, policy fit 15%), and reasoning checks that compare the model's scores and confidence with the structured facts. A proposal is accepted only when it agrees with the policy decision computed from its own extracted terms, or when it asks for a person. An optional veto-only critic fails closed on error. Rejections change nothing and are audited. See [docs/model-governance.md](docs/model-governance.md). Tested with a mock model and scripted proposals, plus live runs against an open-weights model (Qwen3.8 27B via Groq free tier). See the combo run below and RUNLOG.md for the honest record.
 
+## Console walkthrough
+Real captures from the simulated-sandbox console (loopback only):
+
+![Case queue: four scenarios awaiting review](docs/images/console-queue.png)
+
+![Terms review: vendor terms as untrusted text, forecast against the reserve floor, policy decision](docs/images/terms-review.png)
+
+![Approved intent: cadence, cap, currency, categories, terms hash](docs/images/intent-approved.png)
+
+![Card issued: controls mirror the approved intent](docs/images/card-issued.png)
+
+![Simulated authorizations: in-policy clears, over-cap, wrong currency and wrong category decline with the rule](docs/images/simulations.png)
+
+The governance gate gets the same treatment for model proposals:
+
+![Governance: untrusted vendor text is data, never instructions](docs/images/governance-gate.png)
+
 ## Live model run (open weights, 2026-10-06)
 
 Real, unscripted calls to Qwen3.8 27B on Groq's free tier (OpenAI-compatible, temperature 0). The demo set is a deliberate combo - clean passes, correct declines and edge cases - so the gate shows it works in both directions. Every attempt is recorded in [runs/extraction-live-oss.jsonl](runs/extraction-live-oss.jsonl) and summarised in [RUNLOG.md](RUNLOG.md).
@@ -95,5 +112,7 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
     src/visa        TAP-style signature verification, VIC-shaped fixture adapter
     src/agent       model client, planner, rubric, guardrails, reasoning checks
     src/console     the review console (loopback only)
+    docs            model governance write-up and console captures
     evals           deterministic policy, simulation and governance scenarios
+    scripts         live-run harnesses (extraction, sandbox) and the smoke test
     test/redteam    cross-layer attack tests
