@@ -38,6 +38,10 @@ export class LiveIssuingGateway implements IssuingGateway {
   constructor(private client: AirwallexClient) {}
 
   async createCardholder(req: { name: string; email: string }, requestId?: string): Promise<Cardholder> {
+    // Cardholders are unique by email on the account: a fresh console run must reuse, not duplicate.
+    const existing = await this.client.listCardholders(req.email).catch(() => ({ items: [] }));
+    const found = (existing.items ?? [])[0];
+    if (found) return { id: found.cardholder_id ?? found.id, name: req.name, email: req.email };
     const [firstName, ...rest] = req.name.trim().split(/\s+/);
     // Shape verified against the sandbox (see RUNLOG.md): email is top-level, the individual block
     // requires date_of_birth, express_consent_obtained and address.country.

@@ -85,6 +85,7 @@ function render() {
     (c.intent ? '<div class="box" style="margin-top:14px"><h3>Approved intent</h3><div class="kv"><b>Cadence</b><span>' + c.intent.cadence + '</span><b>Cap</b><span>' + c.intent.amountCap + ' ' + c.intent.currency + ' per transaction</span><b>Categories</b><span>' + c.intent.categories.join(', ') + '</span><b>Reconsider</b><span>' + (c.intent.reconsiderAt || 'at renewal') + '</span></div><div class="hash">terms ' + c.intent.termsHash + '</div></div>' : '') +
     (c.card ? '<div class="box" style="margin-top:14px"><h3>Card ' + esc(c.card.id.slice(0, 16)) + ' - controls mirror the intent</h3><div class="kv"><b>Limit</b><span>' + c.card.controls.amountLimit + ' per transaction (inclusive)</span><b>Currencies</b><span>' + c.card.controls.currencyAllowlist.join(', ') + '</span><b>Categories</b><span>' + c.card.controls.merchantCategories.join(', ') + '</span><b>Status</b><span>' + c.card.status + '</span></div></div>' : '') +
     '<div class="btns">' +
+    (!c.intent && !c.card ? '<button class="act sec" id="extract">Extract terms (model)</button>' : '') +
     (c.intent ? '' : '<button class="act" id="approve">Approve intent</button>') +
     (c.intent && !c.card ? '<button class="act" id="mkcard">Create card</button>' : '') +
     (c.card ? '<button class="act sec" data-sim="in-policy">Simulate: in policy</button><button class="act sec" data-sim="over-cap">Simulate: over cap</button><button class="act sec" data-sim="wrong-currency">Simulate: wrong currency</button><button class="act sec" data-sim="wrong-category">Simulate: wrong category</button>' + (c.card.status === 'ACTIVE' ? '<button class="act warn" id="freeze">Freeze card</button>' : '') : '') +
@@ -93,6 +94,8 @@ function render() {
     (txns ? '<div class="box" style="margin-top:14px"><h3>Authorizations</h3>' + txns + '</div>' : '') +
     (c.log.length ? '<div class="log">' + c.log.map(function(l){ return '<div>' + esc(l) + '</div>'; }).join('') + '</div>' : '') +
     '<div class="box audit"><h3>Audit trail</h3>' + audit + '</div>';
+  var ex = document.getElementById('extract');
+  if (ex) ex.onclick = function() { toast('Extracting terms with the model...'); api('/api/extract', { caseId: c.kase.id }).then(function(d2){ if (d2.error) { toast(d2.error); return; } var p = d2.plan || {}; if (p.ok) { toast('Extraction accepted by governance - a person still approves'); } else { toast('Model extraction not adopted - human-entered terms stand'); } load(); }); };
   var ap = document.getElementById('approve');
   if (ap) ap.onclick = function() { api('/api/approve', { caseId: c.kase.id }).then(function(d2){ if (d2.error) { toast(d2.error); return; } state.approval = d2.approval; toast('Intent approved - bound to these exact terms'); load(); }); };
   var mk = document.getElementById('mkcard');

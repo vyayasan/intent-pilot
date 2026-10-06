@@ -122,7 +122,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
   let cases = options.seedCases ?? demoCases();
   const find = (id: string) => cases.find((c) => c.kase.id === id);
 
-  const view = (c: CaseState): CaseView => ({
+  // The live gateway's getTransaction is async; the simulator's is sync. Await both.
+  const view = async (c: CaseState): Promise<CaseView> => ({
     kase: c.kase,
     forecast: c.forecast,
     decision: c.kase.terms
@@ -131,7 +132,9 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
     intent: c.intent,
     intentHash: c.intent ? hashIntent(c.intent) : undefined,
     card: c.card,
-    transactions: c.transactionIds.map((id) => (gateway as any).getTransaction?.(id)).filter(Boolean) as CardTransaction[],
+    transactions: (await Promise.all(c.transactionIds.map(async (id) => {
+      try { return await gateway.getTransaction?.(id); } catch { return undefined; }
+    }))).filter(Boolean) as CardTransaction[],
     rejected: c.rejected,
     log: c.log,
   });
@@ -145,7 +148,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       if (options.allowedOrigins && origin && !options.allowedOrigins.includes(origin)) { audit.append("refused", { reason: "origin not allowed", origin }); return bad("origin not allowed", 403); }
       if (options.sessionToken && request.headers.get("x-console-token") !== options.sessionToken) { audit.append("refused", { reason: "missing or wrong console token", path: url.pathname }); return bad("missing or wrong console token", 403); }
     }
-    if (url.pathname === "/api/cases" && request.method === "GET") return json({ cases: cases.map(view), audit: audit.list() });
+    if (url.pathname === "/api/cases" && request.method === "GET") return json({ cases: await Promise.all(cases.map(view)), audit: audit.list() });
     if (url.pathname === "/api/reset-demo" && request.method === "POST") {
       gateway = makeSim(); holderId = undefined; cases = demoCases(); audit.append("reset", {});
       return json({ cases: cases.map(view) });
@@ -162,7 +165,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       const approval = issue(c.kase.id, c.intent, DEFAULT_POLICY.version, approver, key, 60_000, now(), `Policy recommends ${d.cadence}: ${d.reasons.join("; ")}`);
       c.log.push(`Intent approved by ${approver}: ${c.intent.cadence}, cap ${c.intent.amountCap} ${c.intent.currency}.`);
       audit.append("approval_issued", { cadence: c.intent.cadence, amountCap: c.intent.amountCap, currency: c.intent.currency, termsHash: c.intent.termsHash, nonce: approval.nonce }, c.kase.id);
-      return json({ approval, case: view(c) });
+      return json({ approval, case: await view(c) });
     }
     if (url.pathname === "/api/create-card" && request.method === "POST") {
       const parsed = CreateCardBody.safeParse(await request.json().catch(() => null));
@@ -181,7 +184,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
         c.card = await gateway.createCard({ cardholderId: holderId, controls }, `${approval.nonce}:card`);
         c.log.push(`Card ${c.card.id} created: limit ${controls.amountLimit} ${c.intent.currency} per transaction, currencies ${controls.currencyAllowlist.join("/")}, categories ${controls.merchantCategories.join("/")}.`);
         audit.append("card_created", { cardId: c.card.id, controls, nonce: approval.nonce }, c.kase.id);
-        return json({ card: c.card, case: view(c) });
+        return json({ card: c.card, case: await view(c) });
       } catch (error) {
         const msg = error instanceof Error ? error.message : "card creation failed";
         audit.append("outcome_unknown", { error: msg, nonce: approval.nonce }, c.kase.id);
@@ -208,7 +211,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
         c.log.push(`Authorization declined (${t.failureReason}): the card enforced the approved intent.`);
         audit.append("authorization_declined", { transactionId: t.id, reason: t.failureReason, amount: t.amount }, c.kase.id);
       }
-      return json({ transaction: (gateway as any).getTransaction?.(t.id) ?? t, case: view(c) });
+      return json({ transaction: (await gateway.getTransaction?.(t.id)) ?? t, case: await view(c) });
     }
     if (url.pathname === "/api/freeze" && request.method === "POST") {
       const parsed = FreezeBody.safeParse(await request.json().catch(() => null));
@@ -219,7 +222,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       c.card = await gateway.freezeCard(c.card.id, `${c.kase.id}:freeze`);
       c.log.push("Card frozen by a person. New authorizations decline as card_frozen.");
       audit.append("card_frozen", { cardId: c.card.id }, c.kase.id);
-      return json({ card: c.card, case: view(c) });
+      return json({ card: c.card, case: await view(c) });
     }
     if (url.pathname === "/api/reject" && request.method === "POST") {
       const parsed = RejectBody.safeParse(await request.json().catch(() => null));
@@ -229,7 +232,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       c.rejected = parsed.data.reason;
       c.log.push(`Reviewer rejected the case: ${parsed.data.reason}. No card was created.`);
       audit.append("recommendation_rejected", { reason: parsed.data.reason }, c.kase.id);
-      return json({ case: view(c) });
+      return json({ case: await view(c) });
     }
     if (url.pathname === "/api/extract" && request.method === "POST") {
       if (!options.planner) return bad("no model configured: the terms above stay human-entered", 501);
@@ -241,7 +244,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       if (!plan.ok) {
         audit.append("model_error", { error: plan.error }, c.kase.id);
         c.log.push(`Model unavailable: ${plan.error}. Human-entered terms stand.`);
-        return json({ plan, case: view(c) });
+        return json({ plan, case: await view(c) });
       }
       audit.append(plan.gate?.accepted ? "model_proposal" : "model_proposal_rejected", {
         cadence: plan.proposal?.cadence, confidence: plan.proposal?.confidence, finalCadence: plan.gate?.finalCadence, reasons: plan.gate?.reasons,
@@ -253,7 +256,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       } else {
         c.log.push(`Model extraction not adopted: ${(plan.gate?.reasons ?? ["no proposal"]).join("; ")}.`);
       }
-      return json({ plan, case: view(c) });
+      return json({ plan, case: await view(c) });
     }
     return bad("not found", 404);
   };

@@ -66,6 +66,9 @@ export class AirwallexClient {
   createCardholder(body: Record<string, unknown>, requestId?: string) {
     return this.call<any>("POST", "/api/v1/issuing/cardholders/create", body, requestId);
   }
+  listCardholders(email: string) {
+    return this.call<any>("GET", `/api/v1/issuing/cardholders?email=${encodeURIComponent(email)}`);
+  }
   createCard(body: Record<string, unknown>, requestId?: string) {
     return this.call<any>("POST", "/api/v1/issuing/cards/create", body, requestId);
   }
