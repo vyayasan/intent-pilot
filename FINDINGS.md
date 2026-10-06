@@ -62,6 +62,10 @@ The demo's second case had no preset terms and no model key in a fresh clone, so
 
 The builder guide's story says the annual plan "pushes cash below the minimum reserve in week seven"; the policy report numbered weeks from 0, so the demo showed "week 6" for the same moment. **Fix:** week numbers are 1-based everywhere (policy report, governance gate, console chart).
 
+### Verified live - Gateway shapes corrected against the sandbox
+
+The live run (RUNLOG.md) exercised the real issuing API and corrected five assumptions: cardholder field layout, card program payload, MCC category codes, the card_status update field (an unknown field returns 200 and is silently ignored, so the first freeze was a no-op), and lifecycle-id captures. It also confirmed one genuine platform gap: the simulator authorization endpoint does not deduplicate request ids, while control-plane endpoints reject an aliased id.
+
 ### Dev-only - Vitest 2 dev chain carried 6 advisories
 
 See Baseline. **Fixed** with Vitest 5.0.3, verified on a clean clone.
