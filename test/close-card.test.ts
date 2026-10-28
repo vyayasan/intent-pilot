@@ -88,3 +88,27 @@ describe("ladder after close (simulator)", () => {
     expect((await post("approve", { caseId: "case_acme" })).status).toBe(409);
   });
 });
+
+describe("terminal-state invariant (simulator)", () => {
+  it("sim freeze/unfreeze refuse a CLOSED card - it cannot be resurrected", async () => {
+    const { gateway, post, approvedCard } = setup();
+    const card = await approvedCard();
+    await post("freeze", { caseId: "case_acme" });
+    await post("close-card", { caseId: "case_acme" });
+    expect(() => gateway.freezeCard(card.id)).toThrow(/closed \(terminal\)/);
+    expect(() => gateway.unfreezeCard(card.id)).toThrow(/closed \(terminal\)/);
+  });
+  it("change-terms on a closed-card case never touches the terminal card and keeps it CLOSED", async () => {
+    const { seed, gateway, post, approvedCard } = setup();
+    await approvedCard();
+    await post("freeze", { caseId: "case_acme" });
+    await post("close-card", { caseId: "case_acme" });
+    const freeze = vi.spyOn(gateway, "freezeCard");
+    const res = await post("change-terms", { caseId: "case_acme", terms: { ...seed[0].kase.terms!, monthlyPrice: 90 }, rawTerms: "New deal: 90 USD per month, 972 annually. Software. 30 days notice." });
+    expect(res.status).toBe(200);
+    expect(freeze).not.toHaveBeenCalled();
+    expect(seed[0].card!.status).toBe("CLOSED");
+    expect(seed[0].requiresReapproval).toBe(true);
+    expect(seed[0].freezeState).toBe("verified");
+  });
+});

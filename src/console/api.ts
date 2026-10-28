@@ -747,7 +747,12 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (oldHash === newHash && c.kase.rawTerms === parsed.data.rawTerms) return json({ case: await view(c) });
       // Retain the old intent only to test a purchase against the frozen old card.
       c.requiresReapproval = true;
-      if (c.card) {
+      if (c.card && c.card.status === "CLOSED") {
+        // A closed card is terminal: it already cannot authorize, which is the whole purpose of
+        // the terms-change freeze. Never write to a terminal provider resource (and never assume
+        // how a provider reacts to freezing a closed card).
+        c.freezeState = "verified";
+      } else if (c.card) {
         c.freezeState = "pending";
         try {
           const frozen = await gateway.freezeCard(c.card.id, `${c.card.id}:terms:${newHash}`);

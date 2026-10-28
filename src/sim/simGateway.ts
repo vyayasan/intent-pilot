@@ -128,12 +128,14 @@ export function makeSim(opts: { walletBalance?: number } = {}): SimGateway & { w
     freezeCard: (cardId, requestId) => idem(requestId, () => {
       const c = cards.get(cardId);
       if (!c) throw new Error("card not found");
+      if (c.status === "CLOSED") throw new Error("card is closed (terminal) - it cannot be frozen or reopened");
       c.status = "FROZEN";
       return c;
     }),
     unfreezeCard: (cardId, requestId) => idem(requestId, () => {
       const c = cards.get(cardId);
       if (!c) throw new Error("card not found");
+      if (c.status === "CLOSED") throw new Error("card is closed (terminal) - it cannot be frozen or reopened");
       c.status = "ACTIVE";
       return c;
     }),
