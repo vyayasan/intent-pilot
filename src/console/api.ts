@@ -45,6 +45,8 @@ export interface PendingAuthorization {
 export interface CaseState {
   kase: PurchaseCase;
   forecast: { weeklyBalances: number[]; reserveFloor: number };
+  /** Where the forecast scenario came from. Always a labelled test input, never observed finances. */
+  forecastSource?: string;
   intent?: PurchaseIntent;
   card?: Card;
   transactionIds: string[];
@@ -87,12 +89,15 @@ const IntakeBody = z.object({
   weeklyBalances: z.array(z.number().finite().nonnegative()).length(12),
   reserveFloor: z.number().finite().nonnegative(),
   sourceNote: z.string().trim().min(1).max(200),
+  forecastSource: z.string().trim().min(1).max(200).optional(),
 });
 const PromoteBody = z.object({ id: z.string(), operatorToken: z.string() });
 
 export interface CaseView {
   kase: PurchaseCase;
   forecast: { weeklyBalances: number[]; reserveFloor: number };
+  termsSource: string | null;
+  forecastSource: string | null;
   decision: CadenceDecision;
   intent?: PurchaseIntent;
   intentHash?: string;
@@ -297,6 +302,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
     return {
     kase: c.kase,
     forecast: c.forecast,
+    termsSource: c.kase.sourceNote ?? null,
+    forecastSource: c.forecastSource ?? null,
     decision: c.kase.terms
       ? decide(c.kase.terms, { weeklyBalances: c.forecast.weeklyBalances, reserveFloor: c.forecast.reserveFloor, breachWeek: null }, DEFAULT_POLICY, now())
       : { cadence: "ESCALATE", reasons: ["terms not extracted yet"], savingsPct: null, annualBreachWeek: null, monthlyBreachWeek: null, reconsiderAt: null },
@@ -790,10 +797,11 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       const id = `case_${slug}_${randomBytes(3).toString("hex")}`;
       if (find(id)) return bad("case id collision; retry", 409);
       const c: CaseState = {
-        kase: { id, vendor: parsed.data.vendor, rawTerms: parsed.data.rawTerms },
+        kase: { id, vendor: parsed.data.vendor, rawTerms: parsed.data.rawTerms, sourceNote: parsed.data.sourceNote },
         forecast: { weeklyBalances: parsed.data.weeklyBalances, reserveFloor: parsed.data.reserveFloor },
+        forecastSource: parsed.data.forecastSource,
         transactionIds: [],
-        log: [`Case created from external intake (${parsed.data.sourceNote}). Terms not extracted yet.`],
+        log: [`Case created from external intake (${parsed.data.sourceNote}). Terms not extracted yet. Weekly balances and reserve floor are TEST SCENARIO INPUTS, not observed finances.`],
       };
       cases.push(c);
       audit.append("case_intake", { vendor: parsed.data.vendor, sourceNote: parsed.data.sourceNote, reserveFloor: parsed.data.reserveFloor }, id);

@@ -36,6 +36,17 @@ describe("case intake (acceptance mode, no demo seed)", () => {
     expect(after.cases).toHaveLength(1);
   });
 
+  it("surfaces terms and forecast provenance on the case view, labelled as test scenario input", async () => {
+    const { intake } = setup();
+    const d = await (await intake({ forecastSource: "client demo scenario A" })).json();
+    expect(d.case.termsSource).toBe("vendor pricing email, 27 Oct");
+    expect(d.case.forecastSource).toBe("client demo scenario A");
+    expect(d.case.kase.sourceNote).toBe("vendor pricing email, 27 Oct");
+    expect(d.case.log.join(" ")).toMatch(/TEST SCENARIO INPUTS/);
+    const d2 = await (await intake({ vendor: "Other Vendor" })).json();
+    expect(d2.case.forecastSource).toBeNull(); // optional; the UI labels an unrecorded source explicitly
+  });
+
   it("records the intake in the audit trail with its provenance", async () => {
     const { audit, intake } = setup();
     const r = await intake();

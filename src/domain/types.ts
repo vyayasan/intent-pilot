@@ -62,6 +62,7 @@ export interface PurchaseCase {
   id: string;
   vendor: string;
   rawTerms: string; // untrusted vendor text
+  sourceNote?: string; // where rawTerms came from (invoice, pricing page, ...); provenance, never authority
   terms?: Terms;
   forecast?: CashForecast;
   intent?: PurchaseIntent;

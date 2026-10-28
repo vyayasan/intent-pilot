@@ -10,7 +10,9 @@ export const PolicySchema = z.object({
 export type Policy = z.infer<typeof PolicySchema>;
 
 export const DEFAULT_POLICY: Policy = PolicySchema.parse({
-  version: "2026-10-06.1", forecastWeeks: 12, billingEveryWeeks: 4,
+  // 2026-10-27.1: single-cadence pricing (monthly-only or annual-only) is complete data and is
+  // evaluated on its own merits; escalation is reserved for no price, malformed values, and breaches.
+  version: "2026-10-27.1", forecastWeeks: 12, billingEveryWeeks: 4,
 });
 
 export interface CadenceDecision {

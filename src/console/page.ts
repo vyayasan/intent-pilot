@@ -8,7 +8,7 @@ export const page = `<!doctype html>
     <div class="org"><span class="orgmark">IP</span><div class="orgt"><strong>IntentPay</strong><span>Intent-bound purchase agent</span></div></div>
     <p class="navhead">Issuing</p>
     <div class="navitem active">Purchase intents</div>
-    <div class="qrow"><p class="navhead">Queue</p><button class="act sec" id="reset" style="padding:5px 10px;font-size:11px">Reset demo</button></div>
+    <div class="qrow"><p class="navhead">Queue</p><span><button class="act sec" id="newcase" style="padding:5px 10px;font-size:11px">New case</button> <button class="act sec" id="reset" style="padding:5px 10px;font-size:11px">Reset demo</button></span></div>
     <div id="cases"></div>
     <div class="sidefoot">__GATEWAY_FOOTER__</div>
   </aside>
@@ -74,13 +74,17 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .audit .row b{color:#344054;font-weight:600}
 .log{font-size:12px;color:#667085;margin-top:12px}.log div{padding:3px 0}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#101828;color:#fff;padding:11px 20px;border-radius:8px;font-size:13px;display:none;box-shadow:0 4px 14px rgba(16,24,40,.25)}
+.fld{display:block;font-size:12px;color:#475467;margin:10px 0}
+.fld input,.fld textarea{display:block;width:100%;margin-top:4px;border:1px solid #d0d5dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;color:#101828;background:#fff}
+.fld textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
+.srcnote{font-size:11px;color:#667085;background:#f9fafb;border:1px solid #e4e7ea;border-radius:6px;padding:6px 8px;margin-bottom:8px}
 @media(max-width:900px){.wrap{grid-template-columns:1fr}.side{position:static;min-height:0}.content{padding:18px}.grid2{grid-template-columns:1fr}}
 `;
 
 export const pageJs = `
 var metaToken = document.querySelector('meta[name="console-token"]');
 var token = metaToken ? metaToken.content : null; // demo mode only; with real sign-in the session cookie is enough
-var state = { cases: [], audit: [], sel: null, approval: null, cardRecon: null };
+var state = { cases: [], audit: [], sel: null, approval: null, cardRecon: null, showIntake: false };
 function api(path, body) {
   var headers = { 'content-type': 'application/json' };
   if (token) headers['x-console-token'] = token;
@@ -101,7 +105,12 @@ function render() {
   }).join('');
   Array.prototype.forEach.call(q.querySelectorAll('.casebtn'), function(b){ b.onclick = function(){ state.sel = b.dataset.id; state.approval = null; state.cardRecon = null; render(); }; });
   var c = current(); var p = document.getElementById('panel');
-  if (!c) { p.innerHTML = '<p class="muted">No cases.</p>'; return; }
+  if (state.showIntake) { renderIntake(p); return; }
+  if (!c) {
+    p.innerHTML = '<div class="panelhead"><h2>Purchase intents</h2></div><div class="box"><h3>No cases yet</h3><p class="muted">This console started with an empty queue. Create a case from real vendor terms to begin; the case then runs the full lifecycle here: extraction, policy decision, approval, card issuance, authorizations, freeze and reconcile.</p><div class="btns"><button class="act" id="empty-newcase">Create a case from vendor terms</button></div></div>';
+    document.getElementById('empty-newcase').onclick = function(){ state.showIntake = true; render(); };
+    return;
+  }
   var t = c.kase.terms, d = c.decision, f = c.kase;
   var floorRows = '';
   var maxB = Math.max.apply(null, currentForecast(c));
@@ -120,9 +129,9 @@ function render() {
     (c.pendingAuthorization ? '<div class="decision" style="border-color:#fdb022;background:#fffaeb;margin:0 0 16px"><b>' + (c.pendingAuthorization.reconciledAt ? 'Manually confirmed - retry unlocked.' : c.pendingAuthorization.probableMatch ? 'Probable ledger match - operator review required.' : 'Authorization outcome unresolved - locked.') + '</b><p>' + (c.pendingAuthorization.reconciledAt ? 'Local operator attestation at ' + esc(c.pendingAuthorization.reconciledAt) + ': ' + esc(c.pendingAuthorization.manualConfirm || '') + ' (A local operator action, not proof of provider finality.) The retry reuses the original request id.' : c.pendingAuthorization.probableMatch ? 'Reconcile found ' + esc(c.pendingAuthorization.probableMatch.transactionId) + ' (' + esc(c.pendingAuthorization.probableMatch.status) + ') matching card, amount, currency, merchant and time window - heuristic only, it may be an unrelated payment. Spending stays locked until an operator reviews it.' : 'The gateway did not confirm the last purchase attempt (' + esc(c.pendingAuthorization.lastError || 'no detail') + '). Purchases on this card are locked until reconciliation. A ledger no-match does not unlock on its own - ledger visibility can lag and this endpoint documents no idempotency guarantee.') + '</p><button class="act sec" id="reconcile">Reconcile with gateway ledger</button> <button class="act warn" id="reconcile-manual">' + (c.pendingAuthorization.probableMatch ? 'Review and resolve the probable match' : 'Confirm manually after dashboard check') + '</button></div>' : '') +
     (c.requiresReapproval ? '<div class="decision" style="border-color:#fecdca;background:#fff7f5;margin:0 0 16px"><b>Deal changed. Approval invalidated.</b><p>' + (c.freezeState === 'verified' ? 'Old card freeze verified. Test the old purchase, then review and approve the new deal.' : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'Freeze NOT verified. The old card may still authorize payments. Approval and new issuance are blocked. Reconcile the card before continuing.' : 'No issued card to freeze. Review and approve the new terms.') + '</p></div>' : '') +
     '<div class="panelhead"><h2>' + esc(f.vendor) + '</h2><span class="muted">' + esc(f.id) + '</span></div>' +
-    '<div class="grid2"><div class="box"><h3>Vendor terms (untrusted text)</h3><div class="terms">' + esc(f.rawTerms) + '</div>' +
+    '<div class="grid2"><div class="box"><h3>Vendor terms (untrusted text)</h3><div class="srcnote">Source: ' + esc(c.termsSource || 'demo fixture (seeded)') + '. Untrusted text: any instructions inside it carry no authority.</div><div class="terms">' + esc(f.rawTerms) + '</div>' +
     (t ? '<table><tr><th></th><th>Monthly</th><th>Annual</th></tr><tr><td>Price</td><td>' + (t.monthlyPrice == null ? 'not offered' : t.monthlyPrice + ' ' + esc(t.currency) + '/mo') + '</td><td>' + (t.annualPrice == null ? 'not offered' : t.annualPrice + ' ' + esc(t.currency) + '/yr') + '</td></tr><tr><td>12-month total</td><td>' + (t.monthlyPrice == null ? 'not offered' : t.monthlyPrice * 12) + '</td><td>' + (t.annualPrice == null ? 'not offered' : t.annualPrice + ' (saves ' + (d.savingsPct || 0) + '%)') + '</td></tr><tr><td>Notice</td><td colspan="2">' + (t.noticeDays || 0) + ' days</td></tr></table>' : '') +
-    '</div><div class="box"><h3>Cash forecast vs reserve floor</h3><div class="fc">' + bars + '<div class="floor" style="top:' + (86 - Math.round(70 * (c.forecast.reserveFloor / (maxB || 1)))) + 'px"></div></div><div class="muted" style="margin-top:6px">Reserve floor ' + c.forecast.reserveFloor + '.' + (t && t.annualPrice != null ? ' Red bar: the week annual billing breaches it.' : ' No annual option in the current terms.') + '</div></div></div>' +
+    '</div><div class="box"><h3>Cash forecast vs reserve floor - TEST SCENARIO INPUT</h3><div class="srcnote">Decision input for this scenario, not observed finances. Live provider balances are point-in-time reads, not a forecast. Source: ' + esc(c.forecastSource || (c.termsSource ? 'not recorded' : 'demo fixture (seeded)')) + '</div><div class="fc">' + bars + '<div class="floor" style="top:' + (86 - Math.round(70 * (c.forecast.reserveFloor / (maxB || 1)))) + 'px"></div></div><div class="muted" style="margin-top:6px">Reserve floor ' + c.forecast.reserveFloor + '.' + (t && t.annualPrice != null ? ' Red bar: the week annual billing breaches it.' : ' No annual option in the current terms.') + '</div></div></div>' +
     '<div class="decision"><b>Policy decision: ' + d.cadence.toUpperCase() + '</b><ul class="reasons">' + d.reasons.map(function(r){ return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>' +
     (c.intent ? '<div class="box" style="margin-top:14px"><h3>' + (c.requiresReapproval ? 'Previous intent - no longer approved' : 'Approved intent') + '</h3><div class="kv"><b>Cadence</b><span>' + esc(c.intent.cadence) + '</span><b>Cap</b><span>' + esc(c.intent.amountCap) + ' ' + esc(c.intent.currency) + ' per transaction</span><b>Categories</b><span>' + esc(c.intent.categories.join(', ')) + '</span><b>Reconsider</b><span>' + esc(c.intent.reconsiderAt || 'at renewal') + '</span></div><div class="hash">terms ' + esc(c.intent.termsHash) + '</div></div>' : '') +
     (c.card ? '<div class="box" style="margin-top:14px"><h3>Card ' + esc(c.card.id.slice(0, 16)) + ' - issued card controls</h3><div class="kv"><b>Limit</b><span>' + esc(c.card.controls.amountLimit) + ' per transaction (inclusive)</span><b>Currencies</b><span>' + esc(c.card.controls.currencyAllowlist.join(', ')) + '</span><b>Categories</b><span>' + esc(c.card.controls.merchantCategories.join(', ')) + '</span><b>Status</b><span>' + esc(c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'UNKNOWN - last confirmed ' + c.card.status : c.card.status) + '</span></div></div>' : '') +
@@ -172,7 +181,44 @@ function render() {
   var rj = document.getElementById('reject');
   if (rj) rj.onclick = function(){ var reason = prompt('Why are you rejecting this purchase?'); if (!reason) return; api('/api/reject', { caseId: c.kase.id, reason: reason }).then(function(){ toast('Rejected - no card was created'); load(); }); };
 }
+function renderIntake(p) {
+  p.innerHTML =
+    '<div class="panelhead"><h2>New case from vendor terms</h2></div>' +
+    '<div class="box"><h3>Vendor terms (untrusted text)</h3>' +
+    '<div class="srcnote">Paste the vendor pricing text exactly as found. It is treated as untrusted data: instructions inside it carry no authority, extraction is gated, and a person still approves the intent.</div>' +
+    '<label class="fld">Vendor name<input id="in-vendor" maxlength="120"></label>' +
+    '<label class="fld">Terms text<textarea id="in-terms" rows="6" maxlength="8000"></textarea></label>' +
+    '<label class="fld">Terms source (required)<input id="in-source" maxlength="200" placeholder="e.g. pricing page, invoice from inbox"></label>' +
+    '</div>' +
+    '<div class="box" style="margin-top:14px"><h3>Cash forecast - TEST SCENARIO INPUT</h3>' +
+    '<div class="srcnote">Decision inputs for this test scenario, not observed finances. Live provider balances are point-in-time reads, not a forecast.</div>' +
+    '<label class="fld">Weekly balances, 12 comma-separated<input id="in-balances" placeholder="3200, 3250, 3300, ..."></label>' +
+    '<label class="fld">Reserve floor<input id="in-floor" type="number" min="0"></label>' +
+    '<label class="fld">Forecast source (optional)<input id="in-fsource" maxlength="200" placeholder="e.g. client demo scenario A"></label>' +
+    '</div>' +
+    '<div class="btns"><button class="act" id="in-submit">Create case</button><button class="act sec" id="in-cancel">Cancel</button></div>';
+  document.getElementById('in-cancel').onclick = function(){ state.showIntake = false; render(); };
+  document.getElementById('in-submit').onclick = function(){
+    var vendor = document.getElementById('in-vendor').value.trim();
+    var rawTerms = document.getElementById('in-terms').value.trim();
+    var sourceNote = document.getElementById('in-source').value.trim();
+    var forecastSource = document.getElementById('in-fsource').value.trim();
+    var parts = document.getElementById('in-balances').value.split(',');
+    var balances = [];
+    for (var i = 0; i < parts.length; i++) { var n = Number(parts[i].trim()); if (parts[i].trim() === '' || !isFinite(n) || n < 0) { toast('Weekly balances must be 12 non-negative numbers'); return; } balances.push(n); }
+    var floor = Number(document.getElementById('in-floor').value);
+    if (!vendor || !rawTerms || !sourceNote) { toast('Vendor, terms text and terms source are required'); return; }
+    if (balances.length !== 12) { toast('Exactly 12 weekly balances are required'); return; }
+    if (!isFinite(floor) || floor < 0) { toast('Reserve floor must be a non-negative number'); return; }
+    api('/api/intake', { vendor: vendor, rawTerms: rawTerms, weeklyBalances: balances, reserveFloor: floor, sourceNote: sourceNote, forecastSource: forecastSource || undefined }).then(function(d2){
+      if (d2.error) { toast(d2.error); return; }
+      state.showIntake = false; state.sel = d2.case.kase.id;
+      toast('Case created - terms not extracted yet'); load();
+    });
+  };
+}
 function currentForecast(c) { return c.forecast ? c.forecast.weeklyBalances : []; }
+document.getElementById('newcase').onclick = function(){ state.showIntake = true; render(); };
 document.getElementById('reset').onclick = function(){ api('/api/reset-demo', {}).then(function(){ state.sel = null; state.approval = null; load(); }); };
 load();
 `;
