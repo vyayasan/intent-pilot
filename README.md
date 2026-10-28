@@ -14,6 +14,8 @@ A founder weighing a SaaS plan gets the same pitch every time: pay annually, sav
 
 The agent reads the vendor's terms, computes the annual-vs-monthly decision against the cash forecast and reserve floor in deterministic policy code, and asks a person to approve an **intent** (cadence, amount cap, currency, merchant categories). The card it then issues on Airwallex carries exactly those controls. Anything outside them declines at the card, with the policy rule as the decline reason.
 
+Demo fixture data:
+
 | Case | Policy decision | Why | Card issued |
 |---|---|---|---|
 | Acme Analytics Pro | Monthly | Annual saves 18% but breaches the $500 reserve floor in week 7 | Cap $100, USD only, software only |
@@ -25,7 +27,7 @@ The agent reads the vendor's terms, computes the annual-vs-monthly decision agai
 2. **Decide.** `src/policy/policy.ts` computes the cadence: weekly balances, first week below the reserve floor, savings percent, reconsider date. Malformed inputs escalate to a person.
 3. **Approve.** A person approves the intent in the console — an HMAC signature over the terms hash, intent hash, policy version, approver, expiry and nonce.
 4. **Issue.** Card controls derive from the approved intent and nothing else. The approval is re-verified before issue, consumed once, and refused if the deal changed.
-5. **Enforce.** Authorizations clear or decline inside the card's controls. The simulator and the live Airwallex gateway implement the same `IssuingGateway` interface; `request_id` makes every mutation idempotent.
+5. **Enforce.** Authorizations clear or decline inside the card's controls. The simulator and the live Airwallex gateway implement the same `IssuingGateway` interface. Control-plane mutations carry `request_id` with retry-stable payloads, which the provider deduplicates; the sandbox authorization simulator documents no request-id dedupe, so an uncertain authorization outcome stays locked for reconciliation rather than retried.
 
 <p align="center"><img src="docs/1-system-architecture.png" alt="System architecture" width="900"/></p>
 
@@ -59,26 +61,26 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
 ## Verify
 
 ```bash
-npm test        # 182 tests
-npm run evals   # 55 deterministic scenarios, writes evals/RESULTS.md
+npm test        # 423 tests
+npm run evals   # 58 deterministic scenarios, writes evals/RESULTS.md
 npm run smoke   # end-to-end flow in one process
 npm run typecheck
 ```
 
-- **182 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
-- **55 deterministic eval scenarios** — policy boundaries, fail-closed inputs, card-control declines, scripted model proposals through the governance gate ([evals/RESULTS.md](evals/RESULTS.md)).
+- **423 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
+- **58 deterministic eval scenarios** — policy boundaries, fail-closed inputs, card-control declines, scripted model proposals through the governance gate ([evals/RESULTS.md](evals/RESULTS.md)).
 
 ## Proven live
 
 - **Airwallex issuing sandbox (2026-10-06):** real cardholder, virtual cards issued with controls mirroring approved intents, authorizations passing and failing with the sandbox's own decline reasons (`LIMIT_EXCEEDED`, `CURRENCY_NOT_ALLOWED`, `MERCHANT_CATEGORY_NOT_ALLOWED`, `CARD_INACTIVE`), freeze/unfreeze, captures CLEARING.
 - **Live open-weights model (2026-10-06):** unscripted extraction runs through the governance gate — clean passes accepted, a policy override enforced (model proposed annual, the gate enforced monthly on the reserve floor), an injection attempt treated as data and surfaced, fabricated facts rejected.
 
-- **Changed-deal proof, Airwallex sandbox (2026-10-21):** a person approved a $100/month intent; the issued card cleared a $100 in-policy purchase. The deal then changed to $90: the old approval was invalidated, the old card frozen (independent read-back INACTIVE), re-use of the stale approval refused with HTTP 409, and the previously allowed $100 purchase declined at the card with CARD_INACTIVE. A fresh $90 approval issued a new card and cleared $90. Every step receipted; card and transaction IDs reconcile against the sandbox dashboard. Harness: scripts/changed-deal-proof.ts (typed human confirmations, exclusive run folders, no automatic retry).
+- **Changed-deal proof, Airwallex sandbox (2026-10-21):** a person approved a $100/month intent; the issued card cleared a $100 in-policy purchase. The deal then changed to $90: the old approval was invalidated, the old card frozen (independent read-back INACTIVE), re-use of the stale approval refused with HTTP 409, and the previously allowed $100 purchase declined at the card with CARD_INACTIVE. A fresh $90 approval issued a new card and cleared $90. Every step receipted; card and transaction IDs reconcile against the sandbox dashboard. Receipts (audit extracts, response records, captures) are kept in the owner's private Drive, evidence file 1TOcFy0aY4WYbNkrYwCbmOhy2MPY7v35x. Harness: scripts/changed-deal-proof.ts (typed human confirmations, exclusive run folders, no automatic retry).
 
 ## Honest limits
 
 - Decisions live in deterministic code; the model only extracts and proposes, and rejections fail closed to a person.
-- The human approval in the demo is a click in a local console, not an authenticated session. Approvals are signed by a local demo approver key (ed25519, generated per install, persisted in the gitignored state file) and card creation verifies that signature, so a foreign or stripped approval is refused. That is demo-grade local identity: the key proves local integrity (this install's approver key signed the approval), not proof of a human's identity - production binds approvals to SSO.
+- The console supports authenticated sign-in (Google OIDC) with enrolled roles - approver, viewer, operator; unlisted users are denied by default - exercised as the approver session in the 27 Oct 2026 sandbox run. Approval signatures still come from a console-local ed25519 key (generated per install, persisted in the gitignored state file), and card creation verifies that signature, so a foreign or stripped approval is refused. The key proves local integrity (this install's key signed the approval), not by itself a human's identity: that binding comes from the authenticated session, and production binds approvals to SSO-managed identity.
 - The simulator mirrors the sandbox semantics relied on here; one documented difference: the sandbox simulator authorization endpoint does not deduplicate request ids, the control plane does.
 - The Visa-side modules (TAP-style signature verification, VIC-shaped instruction adapter) run against fixtures. No live Visa integration is claimed.
 
@@ -89,6 +91,8 @@ Each workflow step renders the exact email it would send (approval, card issued,
 - `INTENTPAY_EMAIL_TRANSPORT` unset or `preview` (default): previews only, nothing is sent.
 - `dry-run`: validates the full pipeline (recipient, subject/body, integrity hash) and records dry-run receipts. Still nothing is sent.
 - `http`: EXPERIMENTAL - posts each record to `INTENTPAY_MAIL_ENDPOINT` (optional `INTENTPAY_MAIL_TOKEN`). Tested only against local fake servers; it has never run against a real email provider.
+- `gmail`: sends through the Gmail API from an owner-approved Google account (OAuth refresh-token credentials via `INTENTPAY_GMAIL_CLIENT_ID` / `INTENTPAY_GMAIL_CLIENT_SECRET` / `INTENTPAY_GMAIL_REFRESH_TOKEN`). First real-provider use: the 27 Oct 2026 sandbox lifecycle run, which delivered exactly the two approved self-addressed notifications.
+- Hard send boundary (optional): when the owner approves a specific send scope, `INTENTPAY_EMAIL_ALLOW_KINDS` / `INTENTPAY_EMAIL_ALLOW_TO` / `INTENTPAY_EMAIL_ALLOW_MAX` wrap the transport in an allowlist. Anything outside the approved kinds, recipient or count is withheld - a definite not-sent, recorded on the record and audited as `email_withheld`. An ambiguous outcome consumes the approved count, so retries can never exceed it.
 
 Delivery is idempotent: a record that reached `sent`/`dry-run` is never sent again, even across restarts, and a `failed` delivery stays failed for operator review - the console never blindly resends.
 
@@ -96,7 +100,7 @@ Mode changes do not bridge themselves. A dry-run receipt is not a delivery, and 
 
 Failures are classified like the payment rail. Only failures provably before the request left this process (refused connection, DNS, blocklisted port, local validation) are DEFINITE not-sent. Once the request has arrived, no HTTP status alone proves non-delivery - a side effect can precede the answer - so a bare 4xx or 5xx, a timeout or a dropped connection stays AMBIGUOUS and is never auto-resent. The single definite post-arrival rejection is the documented contract: a JSON body `{"rejected": true, "reason": "..."}`.
 
-Real provider accounts, recipients and wording are a separate owner-approved decision. The Gmail account connected to the owner's assistant is not an implemented product transport - only the fake-server-tested `http` seam exists today.
+Real provider accounts, recipients and wording are a separate owner-approved decision each time. The `gmail` transport is an implemented product transport, first used against the real provider in the 27 Oct 2026 sandbox run under a two-send self-addressed allowlist. The `http` seam remains tested only against local fake servers.
 
 ## Layout
 
