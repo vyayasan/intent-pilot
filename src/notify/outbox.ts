@@ -17,7 +17,8 @@ export type NotificationKind =
   | "reapproval_required"
   | "purchase_cleared"
   | "purchase_declined"
-  | "gateway_outage";
+  | "gateway_outage"
+  | "recommendation_rejected";
 
 export interface NotificationRecord {
   id: string;
@@ -50,7 +51,8 @@ const SUBJECTS: Record<NotificationKind, (i: NotificationInput) => string> = {
   reapproval_required: (i) => `Re-approval needed: ${i.vendor} terms changed`,
   purchase_cleared: (i) => `Purchase cleared inside intent: ${i.detail.amount} ${i.detail.currency} at ${i.vendor}`,
   purchase_declined: (i) => `Purchase declined by intent controls: ${i.detail.amount} ${i.detail.currency} at ${i.vendor}`,
-  gateway_outage: (i) => `Action needed: payment gateway outcome unknown for ${i.vendor}`
+  gateway_outage: (i) => `Action needed: payment gateway outcome unknown for ${i.vendor}`,
+  recommendation_rejected: (i) => `Case rejected: ${i.vendor} - no card was created`
 };
 
 const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
@@ -73,7 +75,11 @@ const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
     `${i.detail.amount} ${i.detail.currency} at ${i.vendor} was declined by the card's intent controls (${i.detail.reason}).`,
   gateway_outage: (i) =>
     `An authorization for ${i.vendor} could not be confirmed (${i.detail.error}).\n` +
-    `The outcome is unknown. Reconcile the card's transactions before retrying to avoid a duplicate.`
+    `The outcome is unknown. Reconcile the card's transactions before retrying to avoid a duplicate.`,
+  recommendation_rejected: (i) =>
+    `The ${i.vendor} purchase intent was rejected by ${i.detail.approver}.\n` +
+    `Reason: ${i.detail.reason}.\n` +
+    `No card was created and no spend can happen on this case.`
 };
 
 export class Outbox {

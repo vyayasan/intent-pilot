@@ -801,7 +801,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
         forecast: { weeklyBalances: parsed.data.weeklyBalances, reserveFloor: parsed.data.reserveFloor },
         forecastSource: parsed.data.forecastSource,
         transactionIds: [],
-        log: [`Case created from external intake (${parsed.data.sourceNote}). Terms not extracted yet. Weekly balances and reserve floor are TEST SCENARIO INPUTS, not observed finances.`],
+        log: [`Case created from external intake (${parsed.data.sourceNote}). At intake: terms not extracted yet. Weekly balances and reserve floor are TEST SCENARIO INPUTS, not observed finances.`],
       };
       cases.push(c);
       audit.append("case_intake", { vendor: parsed.data.vendor, sourceNote: parsed.data.sourceNote, reserveFloor: parsed.data.reserveFloor }, id);
@@ -813,9 +813,13 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (!parsed.success) return bad("invalid reject request", 400);
       const c = find(parsed.data.caseId);
       if (!c) return bad("case not found", 404);
+      // Approver of record follows the same rule as approvals: the authenticated identity, never a client string.
+      const rejectorLabel = identity ? (identity.email ?? identity.sub) : approver;
       c.rejected = parsed.data.reason;
       c.log.push(`Reviewer rejected the case: ${parsed.data.reason}. No card was created.`);
-      audit.append("recommendation_rejected", { reason: parsed.data.reason }, c.kase.id);
+      audit.append("recommendation_rejected", { reason: parsed.data.reason, approver: rejectorLabel }, c.kase.id);
+      await dispatcher.deliver(outbox.emit("recommendation_rejected", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: rejectorLabel, reason: parsed.data.reason } }));
+      persist();
       return json({ case: await view(c) });
     }
     if (url.pathname === "/api/extract" && request.method === "POST") {

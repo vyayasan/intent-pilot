@@ -49,9 +49,9 @@ export class AnthropicModel implements ModelClient {
  * The OpenAI-compatible path needs EXTRACTION_BASE_URL and EXTRACTION_MODEL; EXTRACTION_API_KEY is optional
  * (local servers like Ollama take no key).
  */
-export function modelFromEnv(env: Record<string, string | undefined> = process.env): ModelClient | undefined {
+export function modelFromEnv(env: Record<string, string | undefined> = process.env, hooks?: { onUsage?: (u: { input_tokens?: number; output_tokens?: number }) => void; fetchImpl?: typeof fetch }): ModelClient | undefined {
   const apiKey = env.ANTHROPIC_API_KEY;
-  if (apiKey) return new AnthropicModel({ apiKey, model: env.ANTHROPIC_MODEL || undefined });
+  if (apiKey) return new AnthropicModel({ apiKey, model: env.ANTHROPIC_MODEL || undefined, onUsage: hooks?.onUsage, fetchImpl: hooks?.fetchImpl });
   const baseUrl = env.EXTRACTION_BASE_URL; const model = env.EXTRACTION_MODEL;
   return baseUrl && model ? new OpenAICompatibleModel({ baseUrl, model, apiKey: env.EXTRACTION_API_KEY }) : undefined;
 }

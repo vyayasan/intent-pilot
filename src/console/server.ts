@@ -13,7 +13,7 @@ import { DropCreateResponseGateway } from "../gateway/drop-create.js";
 import { AuditLog } from "../audit/audit.js";
 import { AirwallexClient } from "../gateway/airwallex.js";
 import { LiveIssuingGateway } from "../gateway/live.js";
-import { modelFromEnv } from "../agent/model.js";
+import { DEFAULT_MODEL, modelFromEnv } from "../agent/model.js";
 import { makeSim } from "../sim/simGateway.js";
 import { extractTerms } from "../agent/planner.js";
 
@@ -107,7 +107,11 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
   };
   const live = makeGateway();
   // A model (ANTHROPIC_API_KEY, or EXTRACTION_BASE_URL+EXTRACTION_MODEL for any OpenAI-compatible endpoint) turns on the model extractor. Without one /api/extract answers 501 and terms stay human-entered.
-  const model = modelFromEnv(env);
+  // Usage capture: every billable model request appends its token counts to the audit trail, so cost
+  // reconciliation reads the append-only record instead of an operator's estimate. Token counts only -
+  // never prompts, keys or responses.
+  const auditLog = new AuditLog(env.INTENTPAY_AUDIT_FILE ?? "audit.jsonl");
+  const model = modelFromEnv(env, { onUsage: (u) => auditLog.append("model_usage", { model: env.ANTHROPIC_MODEL ?? DEFAULT_MODEL, inputTokens: u.input_tokens ?? null, outputTokens: u.output_tokens ?? null }) });
   // Email transport: preview (nothing sent) unless the operator explicitly selects one.
   // dry-run exercises the pipeline without a provider; http is EXPERIMENTAL and posts to
   // INTENTPAY_MAIL_ENDPOINT - never a real provider account, which is an owner-approved decision.
@@ -121,7 +125,7 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
     : emailMode === "gmail" ? new GmailApiTransport({ clientId: env.INTENTPAY_GMAIL_CLIENT_ID!, clientSecret: env.INTENTPAY_GMAIL_CLIENT_SECRET!, refreshToken: env.INTENTPAY_GMAIL_REFRESH_TOKEN! })
     : null;
   // INTENTPAY_OPERATOR_TOKEN gates promotion of dry-run email records to real sends (http mode).
-  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${env.INTENTPAY_STATE_FILE ?? "console-state.db"}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: new AuditLog(env.INTENTPAY_AUDIT_FILE ?? "audit.jsonl"), drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: env.INTENTPAY_STATE_FILE ?? (production ? "console-state.db" : "console-state.json"), stateEngine: (env.INTENTPAY_STATE_ENGINE as "json" | "sqlite" | undefined) ?? (production ? "sqlite" : "json") });
+  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${env.INTENTPAY_STATE_FILE ?? "console-state.db"}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: env.INTENTPAY_STATE_FILE ?? (production ? "console-state.db" : "console-state.json"), stateEngine: (env.INTENTPAY_STATE_ENGINE as "json" | "sqlite" | undefined) ?? (production ? "sqlite" : "json") });
 
   // Fixed-window POST rate limit per client IP: brute-forcing the session token and abuse of
   // mutating endpoints both need volume; normal console use is a handful of POSTs per action.

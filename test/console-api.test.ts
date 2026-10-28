@@ -83,6 +83,24 @@ describe("console api", () => {
     expect((await post("/api/create-card", { approval: ap.approval })).status).toBe(200);
   });
 
+  it("a rejection emits a recommendation_rejected notification and persists the rejection", async () => {
+    const saved: string[] = [];
+    const store = { kind: "mem", load: () => null, save: (state: unknown) => { saved.push(JSON.stringify(state)); } };
+    const audit = new AuditLog(undefined, () => NOW);
+    const api = createConsoleApi({ key: "k", approver: "sandi", now: () => NOW, audit, sessionToken: "tok", allowedOrigins: ["http://localhost:3000"], store: store as never });
+    const post = (path: string, body: unknown) =>
+      api(new Request(`http://localhost:3000${path}`, { method: "POST", headers: { "content-type": "application/json", "x-console-token": "tok", origin: "http://localhost:3000" }, body: JSON.stringify(body) }));
+    const r = await post("/api/reject", { caseId: "case_acme", reason: "not in budget this quarter" });
+    expect(r.status).toBe(200);
+    const d = await (await api(new Request("http://localhost:3000/api/cases"))).json();
+    const note = d.notifications.find((n: { kind: string }) => n.kind === "recommendation_rejected");
+    expect(note).toBeTruthy();
+    expect(note.status).toBe("preview"); // nothing is sent without an owner-approved transport
+    expect(note.body).toMatch(/not in budget this quarter/);
+    const last = JSON.parse(saved[saved.length - 1]);
+    expect(last.cases.find((c: { kase: { id: string } }) => c.kase.id === "case_acme").rejected).toBe("not in budget this quarter");
+  });
+
   it("records a rejection with its reason and never creates a card", async () => {
     const { post, audit } = setup();
     await post("/api/reject", { caseId: "case_acme", reason: "not in budget this quarter" });
