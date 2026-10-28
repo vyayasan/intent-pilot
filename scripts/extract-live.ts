@@ -1,13 +1,28 @@
 import { createConsoleApi, demoCases, type CaseState } from "../src/console/api.js";
 import { AuditLog } from "../src/audit/audit.js";
-import { modelFromEnv } from "../src/agent/model.js";
+import { modelFromEnv, AnthropicModel } from "../src/agent/model.js";
 import { extractTerms } from "../src/agent/planner.js";
 import { appendFileSync, readFileSync } from "node:fs";
 
 // Live model extraction run: same /api/extract path the console uses, in-process,
 // against the configured OpenAI-compatible endpoint (EXTRACTION_BASE_URL/EXTRACTION_MODEL).
 // Results are appended to runs/extraction-live-oss.jsonl, one line per case.
-const model = modelFromEnv();
+// --redact <path>: one identifier per line; every logged model-output field is scrubbed with it BEFORE
+// being written, so diagnostics (including a schema-rejected proposal) honor the same redaction as the input.
+const redactMode = (() => { const i = process.argv.indexOf("--redact"); return i >= 0 ? process.argv[i + 1] : undefined; })();
+const redactions: string[] = redactMode ? readFileSync(redactMode, "utf8").split("\n").map((x) => x.trim()).filter((x) => x.length >= 4) : [];
+const scrub = (v: unknown): unknown => {
+  if (v == null) return v;
+  let t = JSON.stringify(v);
+  for (const r of redactions) t = t.split(r).join("[REDACTED]");
+  try { return JSON.parse(t); } catch { return "[scrubbed]"; }
+};
+let usage: { input_tokens?: number; output_tokens?: number } | undefined;
+const model = (() => {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (key) return new AnthropicModel({ apiKey: key, model: process.env.ANTHROPIC_MODEL || undefined, onUsage: (u) => { usage = { ...usage, ...u }; } });
+  return modelFromEnv();
+})();
 if (!model) throw new Error("no model configured: set ANTHROPIC_API_KEY or EXTRACTION_BASE_URL+EXTRACTION_MODEL");
 // Edge cases, live-only: the demo set should show the gate working in both directions.
 // case_edge_injection: instruction-like wording inside untrusted terms - must be treated as data, never obeyed.
@@ -46,13 +61,15 @@ const extract = async (caseId: string) => {
 const out = process.env.EXTRACTION_RUN_OUT ?? "runs/extraction-live-oss.jsonl";
 const positional = process.argv.slice(2).filter((a, i, arr) => !a.startsWith("--") && arr[i - 1] !== "--invoice");
 for (const caseId of (positional.length ? positional : invoiceMode ? ["case_workspace_invoice"] : ["case_acme", "case_flowdesk", "case_northwind", "case_pulsar"])) {
+  usage = undefined;
   const started = Date.now();
   const d: any = await extract(caseId);
   const rec = {
     ts: new Date().toISOString(), model: process.env.EXTRACTION_MODEL ?? (process.env.ANTHROPIC_API_KEY ? process.env.ANTHROPIC_MODEL ?? "anthropic-default" : "unknown"),
     baseUrlHost: process.env.EXTRACTION_BASE_URL ? new URL(process.env.EXTRACTION_BASE_URL).host : "api.anthropic.com",
     caseId, ms: Date.now() - started, httpStatus: d.status,
-    ok: d.plan?.ok ?? false, error: d.plan?.error ?? null, rejection: d.plan?.rejection ?? null,
+    ok: d.plan?.ok ?? false, error: d.plan?.error ?? null, rejection: scrub(d.plan?.rejection) ?? null,
+    usage: usage ?? null,
     proposal: d.plan?.proposal ?? null, gate: d.plan?.gate ?? null,
     adoptedTerms: d.case?.kase?.terms ?? null,
   };

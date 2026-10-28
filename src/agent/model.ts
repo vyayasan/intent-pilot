@@ -10,7 +10,7 @@ export interface Message { role: "user" | "assistant"; content: string | Block[]
 export interface ModelRequest { system: string; messages: Message[]; tools: ToolSpec[] }
 export interface ModelClient { step(req: ModelRequest): Promise<Block[]> }
 
-export interface AnthropicOptions { apiKey: string; model?: string; baseUrl?: string; fetchImpl?: typeof fetch; timeoutMs?: number }
+export interface AnthropicOptions { apiKey: string; model?: string; baseUrl?: string; fetchImpl?: typeof fetch; timeoutMs?: number; onUsage?: (u: { input_tokens?: number; output_tokens?: number }) => void }
 
 // Override with ANTHROPIC_MODEL. Default: the current Sonnet at the time of writing (platform.claude.com model overview, October 2026).
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
@@ -20,13 +20,13 @@ export class AnthropicModel implements ModelClient {
   constructor(o: AnthropicOptions) {
     if (!o.apiKey) throw new Error("an API key is required");
     const f = o.fetchImpl ?? fetch; const base = o.baseUrl ?? "https://api.anthropic.com"; const key = o.apiKey;
-    this.model = o.model ?? DEFAULT_MODEL; this.timeoutMs = o.timeoutMs ?? 30_000;
+    this.model = o.model ?? DEFAULT_MODEL; this.timeoutMs = o.timeoutMs ?? 30_000; this.onUsage = o.onUsage;
     this.send = (body) => f(`${base}/v1/messages`, {
       method: "POST", signal: AbortSignal.timeout(this.timeoutMs),
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body,
     });
   }
-  private model: string; private timeoutMs: number;
+  private model: string; private timeoutMs: number; private onUsage?: (u: { input_tokens?: number; output_tokens?: number }) => void;
 
   async step(req: ModelRequest): Promise<Block[]> {
     // Claude Sonnet 5.5 rejects forced tool use (tool_choice "any" or "tool"), so the request uses "auto" and the system prompt
@@ -38,6 +38,7 @@ export class AnthropicModel implements ModelClient {
     // Only the status and error type are surfaced, never the request or its headers.
     if (!r.ok) throw new Error(`model request failed: ${r.status} ${String(j?.error?.type ?? "error").slice(0, 60)}`);
     if (!Array.isArray(j.content)) throw new Error("model response had no content");
+    if (this.onUsage && j.usage) this.onUsage(j.usage);
     return j.content as Block[];
   }
 }
