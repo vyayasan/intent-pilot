@@ -9,7 +9,7 @@ describe("notification outbox (preview only, never sends)", () => {
     const o = new Outbox(() => NOW);
     const r = o.emit("approval_issued", { ...base, detail: { approver: "sandi", cadence: "monthly", cap: 100, currency: "USD", categories: "software", termsHash: "abc123" } });
     expect(r.subject).toBe("Intent approved: Acme Analytics (monthly, cap 100 USD)");
-    expect(r.body).toContain("approved by sandi");
+    expect(r.body).toContain("approved through the authenticated approver session sandi");
     expect(r.body).toContain("Terms hash: abc123");
     expect(r.status).toBe("preview");
     expect(r.to).toBe("sandi@vyayasan.com");

@@ -57,7 +57,7 @@ const SUBJECTS: Record<NotificationKind, (i: NotificationInput) => string> = {
 
 const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
   approval_issued: (i) =>
-    `The ${i.vendor} purchase intent was approved by ${i.detail.approver}.\n` +
+    `The ${i.vendor} purchase intent was approved through the authenticated approver session ${i.detail.approver}.\n` +
     `Cadence: ${i.detail.cadence}. Cap: ${i.detail.cap} ${i.detail.currency} per transaction. Categories: ${i.detail.categories}.\n` +
     `Terms hash: ${i.detail.termsHash}. Cards can only be created inside this exact approval.`,
   card_created: (i) =>
@@ -77,7 +77,7 @@ const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
     `An authorization for ${i.vendor} could not be confirmed (${i.detail.error}).\n` +
     `The outcome is unknown. Reconcile the card's transactions before retrying to avoid a duplicate.`,
   recommendation_rejected: (i) =>
-    `The ${i.vendor} purchase intent was rejected by ${i.detail.approver}.\n` +
+    `The ${i.vendor} purchase intent was rejected through the authenticated approver session ${i.detail.approver}.\n` +
     `Reason: ${i.detail.reason}.\n` +
     `No card was created and no spend can happen on this case.`
 };
