@@ -1,0 +1,16 @@
+digraph binding {
+  graph [rankdir=LR, bgcolor="#fffaf0", pad="0.28", nodesep="0.36", ranksep="0.55", splines=polyline, fontname="Inter", labelloc=t, label="INTENT PILOT  /  APPROVAL BINDING", fontsize=22, fontcolor="#183d32"];
+  node [shape=box, style="rounded,filled", color="#d8e2d8", fillcolor="#fffdf8", fontname="Inter", fontsize=11, fontcolor="#1d2a25", margin="0.16,0.12", penwidth=1.3];
+  edge [color="#35594b", penwidth=1.5, arrowsize=0.72, fontname="Inter", fontsize=9, fontcolor="#52675d"];
+  terms [label="TERMS HASH\nSHA-256 of the exact\nvendor terms reviewed", fillcolor="#e8f0e8"];
+  intent [label="INTENT HASH\nCadence · cap · currency\ncategories · reconsider", fillcolor="#e8f0e8"];
+  meta [label="POLICY VERSION + APPROVER\nEXPIRY + NONCE", fillcolor="#e8f0e8"];
+  hmac [label="HMAC SIGNATURE\nServer-side secret\nOne approval, one intent", fillcolor="#f3ead8", color="#d7c8a8", penwidth=1.6];
+  verify [label="VERIFIED AT ISSUE\nRecomputed against the live intent\nConsumed once", fillcolor="#dcebe0", color="#789b82"];
+  refused [label="REFUSED + AUDITED\nChanged price · swapped case\nreplayed · expired", fillcolor="#fae9e4", color="#d7897c"];
+  terms -> hmac;
+  intent -> hmac;
+  meta -> hmac;
+  hmac -> verify [label="presented at card issue"];
+  verify -> refused [label="any mismatch"];
+}

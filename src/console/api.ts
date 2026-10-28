@@ -1,0 +1,827 @@
+import { ROLE_RANK, type AuthProvider, type Identity, type Role } from "./auth.js";
+import { openStateStore, type StateStore } from "./state.js";
+import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { z } from "zod";
+import { issue, approverKeyId, ApprovalVerifier, type Approval } from "../approval/approval.js";
+import { hashIntent, hashTerms, mintIntent } from "../intent/intent.js";
+import { cardPayload, decide, DEFAULT_POLICY, type CadenceDecision } from "../policy/policy.js";
+import type { CardControls } from "../domain/types.js";
+import type { Card, CardTransaction, PurchaseCase, PurchaseIntent, Terms } from "../domain/types.js";
+import { AuditLog } from "../audit/audit.js";
+import { makeSim, type IssuingGateway } from "../sim/simGateway.js";
+import { ExtractedTermsSchema } from "../agent/planner.js";
+import { Outbox } from "../notify/outbox.js";
+import { NotificationDispatcher } from "../notify/dispatcher.js";
+import type { EmailTransport } from "../notify/transport.js";
+import type { PlanResult } from "../agent/planner.js";
+
+// An authorization whose outcome the gateway never confirmed. While one is unresolved the card
+// is locked against purchase retries (a blind retry could duplicate a purchase); /api/reconcile
+// reads the gateway ledger and either adopts the transaction it finds or clears the retry, which
+// reuses the SAME request id so the provider's idempotency deduplicates a retry of an attempt
+// that did in fact commit.
+export interface PendingAuthorization {
+  requestId: string;
+  kind: string;
+  cardId: string;
+  amount: number;
+  currency: string;
+  merchant: string;
+  startedAt: string;
+  /** Known once authorize returned - a capture failure leaves the authorization itself certain. */
+  transactionId?: string;
+  lastError?: string;
+  /** Set only by an operator's manual attestation (reconcile manualConfirm) - a local operator
+   *  action, never proof of provider finality. A no-match ledger read alone does NOT unlock:
+   *  this endpoint has no documented idempotency guarantee, and ledger visibility can lag. */
+  reconciledAt?: string;
+  manualConfirm?: string;
+  /** A probable (heuristic) ledger match awaiting operator review. Does NOT unlock spending and
+   *  is never treated as definitive: only an exact id match or a reviewed manual resolution clears it. */
+  probableMatch?: { transactionId: string; status: string; basis: string; foundAt: string };
+}
+
+// The console's case state: the purchase case plus where it is in the flow.
+export interface CaseState {
+  kase: PurchaseCase;
+  forecast: { weeklyBalances: number[]; reserveFloor: number };
+  intent?: PurchaseIntent;
+  card?: Card;
+  transactionIds: string[];
+  freezeState?: "pending" | "verified" | "unknown";
+  requiresReapproval?: boolean;
+  rejected?: string;
+  pendingAuthorization?: PendingAuthorization;
+  /** Set when create-card/create-cardholder failed with an unknown outcome: the provider may hold
+   *  a card (or cardholder) we cannot see. While set, approve AND create-card are refused - a fresh
+   *  approval carries a fresh nonce, hence a fresh provider idempotency slot, hence a possible
+   *  duplicate card. Cleared only by POST /api/reconcile-card against a provider card listing. */
+  createCardUnresolved?: { nonce: string; at: string; error: string; cardholderId?: string };
+  /** Last successfully fetched ledger view per transaction id - preserved so a provider
+   *  outage degrades to visibly-stale evidence instead of a silently empty list. */
+  lastTransactions?: Record<string, { txn: CardTransaction; fetchedAt: string }>;
+  log: string[];
+}
+
+const ApproveBody = z.object({ caseId: z.string() });
+const CreateCardBody = z.object({ approval: z.object({
+  caseId: z.string(), intentId: z.string(), intentHash: z.string(), termsHash: z.string(),
+  amountCap: z.number(), currency: z.string(), cadence: z.string(), categories: z.array(z.string()),
+  policyVersion: z.string(), approver: z.string(), expiresAt: z.string(), nonce: z.string(),
+  rationale: z.string().max(1024), sig: z.string(),
+  approverKeyId: z.string().optional(), approverSig: z.string().optional(),
+}) });
+const ReconcileCardBody = z.object({ caseId: z.string(), decision: z.enum(["check", "adopt", "none-created", "freeze-stray"]), cardId: z.string().optional(), attestation: z.string().optional() });
+const SimulateBody = z.object({ caseId: z.string(), kind: z.enum(["in-policy", "over-cap", "wrong-currency", "wrong-category"]) });
+const RejectBody = z.object({ caseId: z.string(), reason: z.string().trim().min(1).max(1024) }); // a rejection must say why
+const FreezeBody = z.object({ caseId: z.string() });
+const ReconcileBody = z.object({ caseId: z.string(), manualConfirm: z.string().trim().min(8).max(500).optional() });
+const ChangeTermsBody = z.object({ caseId: z.string(), terms: ExtractedTermsSchema, rawTerms: z.string().trim().min(1).max(8000) });
+const ExtractBody = z.object({ caseId: z.string() });
+const PromoteBody = z.object({ id: z.string(), operatorToken: z.string() });
+
+export interface CaseView {
+  kase: PurchaseCase;
+  forecast: { weeklyBalances: number[]; reserveFloor: number };
+  decision: CadenceDecision;
+  intent?: PurchaseIntent;
+  intentHash?: string;
+  card?: Card;
+  transactions: CardTransaction[];
+  /** Ledger read health: degraded = showing last-known entries; unavailable = no last-known either. */
+  ledger: { state: "ok" | "degraded" | "unavailable"; lastKnownAt?: string; error?: string };
+  /** Which email transport is selected: "preview" means nothing is sent, ever. */
+  emailMode?: string;
+  /** Fingerprint of the local demo approver key that signs approvals. */
+  approverKeyId?: string;
+  freezeState?: "pending" | "verified" | "unknown";
+  requiresReapproval?: boolean;
+  rejected?: string;
+  pendingAuthorization?: PendingAuthorization;
+  createCardUnresolved?: { nonce: string; at: string; error: string; cardholderId?: string };
+  log: string[];
+}
+
+export interface ConsoleApiOptions {
+  gateway?: IssuingGateway;
+  /** Factory used on demo reset so a live console stays live; defaults to the simulator. */
+  makeGateway?: () => IssuingGateway;
+  /** Optional model-backed extractor. It proposes terms; governance gates them; a person still approves the intent. */
+  /** Where case state (including unresolved authorization locks) is persisted across restarts. */
+  stateFile?: string;
+  /** Storage engine for stateFile: "json" (demo default, atomic tmp+rename) or "sqlite"
+   *  (WAL, transactional commits - production default via server.ts). Ignored when store is given. */
+  stateEngine?: "json" | "sqlite";
+  /** Injected store (tests). Overrides stateFile/stateEngine. */
+  store?: StateStore;
+  /** DRILL-ONLY fault injection: SIGKILL the process at a named point. Forbidden in production
+   *  (config validation errors); used by scripts/crash-drill.ts to prove recovery honestly. */
+  drillCrashAt?: string;
+  /** Who the email previews are addressed to. Previews only - no email is ever sent. */
+  notificationRecipient?: string;
+  /** Email transport. Null/absent = preview only, nothing is sent. A real provider, real
+   *  recipients and real wording are a separate owner-approved decision, never a default. */
+  emailTransport?: EmailTransport | null;
+  /** Token an operator must present to promote a dry-run email record to a real send.
+   *  Unset = promotion unavailable; promotion is never implicit in a mode switch. */
+  operatorToken?: string;
+  /** True when backed by the live sandbox: demo reset is then refused, so it can never clear
+   *  live unresolved locks, consumed nonces or the live evidence trail as a "recovery" shortcut. */
+  live?: boolean;
+  planner?: (kase: PurchaseCase, forecast: { weeklyBalances: number[]; reserveFloor: number }) => Promise<PlanResult>;
+  key?: string;
+  approver?: string;
+  now?: () => Date;
+  audit?: AuditLog;
+  sessionToken?: string;
+  /** Real authentication (OIDC). When present it replaces the demo session-token check entirely:
+   *  every API call - reads included - requires an authenticated identity, and role checks apply. */
+  auth?: AuthProvider;
+  allowedOrigins?: string[] | (() => string[]);
+  seedCases?: CaseState[];
+}
+
+/** Demo cases mirroring the Builder Guide scenario: annual saves 18% but breaches the floor in week 7. */
+export function demoCases(): CaseState[] {
+  const terms: Terms = { monthlyPrice: 100, annualPrice: 984, currency: "USD", category: "software", noticeDays: 30 };
+  return [{
+    kase: {
+      id: "case_acme", vendor: "Acme Analytics",
+      rawTerms: "Acme Analytics Pro: $100 per month, or $984 per year billed upfront (save 18%). 30 days notice on monthly plans. Billed in USD.",
+      terms,
+    },
+    forecast: {
+      weeklyBalances: [1500, 1500, 1500, 1500, 1500, 1500, 1400, 1400, 1400, 1400, 1400, 1400],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }, {
+    kase: {
+      id: "case_flowdesk", vendor: "Flowdesk",
+      rawTerms: "Flowdesk Team plan. Monthly billing: 40 USD per month. Annual billing: 400 USD per year, paid in advance. Cancel monthly plans with 14 days notice. Category: software.",
+      terms: { monthlyPrice: 40, annualPrice: 400, currency: "USD", category: "software", noticeDays: 14 },
+    },
+    forecast: {
+      weeklyBalances: [3000, 3050, 3100, 3150, 3200, 3250, 3300, 3350, 3400, 3450, 3500, 3550],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }, {
+    kase: {
+      id: "case_northwind", vendor: "Northwind CRM",
+      rawTerms: "Northwind CRM Business: 80 GBP per month, or 768 GBP per year billed upfront (save 20%). 30 days notice on monthly plans. Category: analytics.",
+      terms: { monthlyPrice: 80, annualPrice: 768, currency: "GBP", category: "analytics", noticeDays: 30 },
+    },
+    forecast: {
+      weeklyBalances: [2800, 2850, 2900, 2950, 3000, 3050, 3100, 3150, 3200, 3250, 3300, 3350],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }, {
+    kase: {
+      id: "case_pulsar", vendor: "Pulsar Ads",
+      rawTerms: "Pulsar Ads: 150 USD per month. Annual pricing on request - talk to sales. 60 days notice. Category: marketing.",
+      terms: { monthlyPrice: 150, annualPrice: null, currency: "USD", category: "marketing", noticeDays: 60 },
+    },
+    forecast: {
+      weeklyBalances: [1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200],
+      reserveFloor: 500,
+    },
+    transactionIds: [],
+    log: [],
+  }];
+}
+
+/** A fetch-compatible API handler. In production this handler belongs on the server. */
+export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandler {
+  const key = options.key ?? "local-demo-signing-key-change-before-deploy-32";
+  const approver = options.approver ?? "demo-reviewer";
+  const now = options.now ?? (() => new Date());
+  let gateway = options.gateway ?? makeSim();
+  let holderId: string | undefined;
+  const audit = options.audit ?? new AuditLog();
+  let cases = options.seedCases ?? demoCases();
+  // Email previews: the exact emails each workflow step WOULD send. No transport, nothing is sent.
+  let outbox = new Outbox(now);
+  const recipient = options.notificationRecipient ?? "sandi@vyayasan.com";
+  const dispatcher = new NotificationDispatcher(() => outbox, options.emailTransport ?? null, now, (event, detail, caseId) => audit.append(event, detail, caseId));
+
+  // Demo-grade approver identity: a local ed25519 keypair signs every approval, so card creation
+  // cryptographically requires THIS approver's key - "only they can approve" is real locally.
+  // Production binds approvals to SSO identity instead; this key is persisted in the local state
+  // file (never committed) so a restart keeps the same approver identity.
+  let approverPrivateKeyPem: string;
+  let approverPublicKeyPem: string;
+  let approverFp: string;
+  // Durable state via the StateStore seam (json demo engine, sqlite production engine).
+  const store = options.store ?? (options.stateFile ? openStateStore(options.stateFile, options.stateEngine) : undefined);
+  const loadedState = !options.seedCases && store ? store.load() : null;
+  const savedApproverKey = loadedState && loadedState !== "corrupted" && typeof loadedState.approverKey?.privateKeyPem === "string" && loadedState.approverKey.privateKeyPem
+    ? loadedState.approverKey.privateKeyPem : undefined;
+  if (savedApproverKey) {
+    approverPrivateKeyPem = savedApproverKey;
+    approverPublicKeyPem = createPublicKey(savedApproverKey).export({ type: "spki", format: "pem" }).toString();
+  } else {
+    const pair = generateKeyPairSync("ed25519");
+    approverPrivateKeyPem = pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    approverPublicKeyPem = pair.publicKey.export({ type: "spki", format: "pem" }).toString();
+  }
+  approverFp = approverKeyId(approverPublicKeyPem);
+  // One verifier for the life of the process: a demo reset must not revive an already used approval.
+  const verifier = new ApprovalVerifier(key, approverPublicKeyPem);
+  // Unresolved authorization locks (and their request ids) must survive a process restart:
+  // losing one would let a blind retry duplicate a purchase.
+  // Corrupt state fails CLOSED: starting clean would silently drop unresolved authorization
+  // locks, so instead every mutating endpoint refuses until an operator resolves the file.
+  let stateCorrupted = loadedState === "corrupted";
+  if (loadedState && loadedState !== "corrupted") {
+    try {
+      // Fail closed on any shape drift: a silently mis-loaded store could drop locks or used nonces.
+      if (!Array.isArray(loadedState.cases) || (loadedState.cases as CaseState[]).some((x) => !x?.kase?.id || !Array.isArray(x?.log))) throw new Error("bad shape");
+      cases = loadedState.cases as CaseState[];
+      if (Array.isArray(loadedState.usedNonces)) verifier.restore(loadedState.usedNonces);
+      if (Array.isArray(loadedState.notifications)) outbox.restore(loadedState.notifications as never);
+      if (typeof loadedState.holderId === "string") holderId = loadedState.holderId;
+    } catch { stateCorrupted = true; }
+  }
+  const persist = () => {
+    if (!store) return;
+    // JsonFileStore: atomic tmp+rename. SqliteStore: one transaction for the whole aggregate -
+    // either every entity kind commits or none does; a crash mid-write leaves no torn state.
+    store.save({ cases, usedNonces: verifier.snapshot(), notifications: outbox.list(), approverKey: { privateKeyPem: approverPrivateKeyPem, keyId: approverFp }, holderId: holderId ?? null });
+  };
+  const find = (id: string) => cases.find((c) => c.kase.id === id);
+
+  // The live gateway's getTransaction is async; the simulator's is sync. Await both.
+  const tryGet = async (id: string) => { try { return await gateway.getTransaction?.(id); } catch { return undefined; } };
+  // Gateways may be sync (sim) or async (live) - await both, undefined on any failure.
+  const tryCall = async <T>(fn: () => T | Promise<T>): Promise<T | undefined> => { try { return await fn(); } catch { return undefined; } };
+  const view = async (c: CaseState): Promise<CaseView> => {
+    // Fetch each known transaction; on provider failure fall back to last-known evidence and
+    // SAY SO. A silently empty list would look like "no transactions", which may be false.
+    let ledgerError: string | undefined;
+    const lastKnown = { ...(c.lastTransactions ?? {}) };
+    const txns: CardTransaction[] = [];
+    for (const id of c.transactionIds) {
+      try {
+        const t = await gateway.getTransaction?.(id);
+        if (t) { lastKnown[id] = { txn: t, fetchedAt: now().toISOString() }; txns.push(t); continue; }
+        throw new Error("not found");
+      } catch (e) {
+        ledgerError = (e as Error).message.slice(0, 200);
+        const lk = c.lastTransactions?.[id];
+        if (lk) txns.push(lk.txn); // stale but real; the ledger field says so
+      }
+    }
+    c.lastTransactions = lastKnown;
+    const knownTimes = Object.values(lastKnown).map((x) => x.fetchedAt).sort();
+    const ledger: CaseView["ledger"] = !ledgerError ? { state: "ok" }
+      : Object.keys(c.lastTransactions ?? {}).length ? { state: "degraded", lastKnownAt: knownTimes.at(-1), error: ledgerError }
+      : { state: "unavailable", error: ledgerError };
+    return {
+    kase: c.kase,
+    forecast: c.forecast,
+    decision: c.kase.terms
+      ? decide(c.kase.terms, { weeklyBalances: c.forecast.weeklyBalances, reserveFloor: c.forecast.reserveFloor, breachWeek: null }, DEFAULT_POLICY, now())
+      : { cadence: "ESCALATE", reasons: ["terms not extracted yet"], savingsPct: null, annualBreachWeek: null, monthlyBreachWeek: null, reconsiderAt: null },
+    intent: c.intent,
+    intentHash: c.intent ? hashIntent(c.intent) : undefined,
+    card: c.card,
+    transactions: txns,
+    ledger,
+    emailMode: options.emailTransport?.name ?? "preview",
+    approverKeyId: approverFp,
+    freezeState: c.freezeState,
+    requiresReapproval: c.requiresReapproval,
+    rejected: c.rejected,
+    pendingAuthorization: c.pendingAuthorization,
+    createCardUnresolved: c.createCardUnresolved,
+    log: c.log,
+  };
+  };
+  const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+  const bad = (message: string, status: number) => json({ error: message }, status);
+
+  // Route -> minimum role. Approver-only: review decisions (approve/reject) and promoting a
+  // dry-run email to a real send. Everything else mutating: operator. Reads: viewer.
+  const REQUIRED_ROLE: Record<string, Role> = {
+    "POST /api/approve": "approver",
+    "POST /api/reconcile-card": "operator",
+    "POST /api/reject": "approver",
+    "POST /api/notifications/promote": "approver"
+  };
+
+  const handle = async (request: Request): Promise<Response> => {
+    const url = new URL(request.url);
+    const allowed = typeof options.allowedOrigins === "function" ? options.allowedOrigins() : options.allowedOrigins;
+    if (request.method === "POST") {
+      const origin = request.headers.get("origin");
+      // CSRF: with cookie auth a mutating request MUST present an allowed Origin - browsers
+      // always send Origin on fetch/form POSTs, and SameSite=Lax already withholds the cookie
+      // cross-site, so a missing/foreign Origin here is not a legitimate browser mutation.
+      // (JSON content-type + zod are further barriers for classic form posts.)
+      if (options.auth && (!origin || (allowed && !allowed.includes(origin)))) { audit.append("refused", { reason: "POST without an allowed Origin under cookie auth (CSRF guard)", origin: origin ?? "absent" }); return bad("origin required", 403); }
+      if (!options.auth && allowed && origin && !allowed.includes(origin)) { audit.append("refused", { reason: "origin not allowed", origin }); return bad("origin not allowed", 403); }
+    }
+    let identity: Identity | null = null;
+    if (options.auth) {
+      identity = options.auth.authenticate(request);
+      if (!identity) { audit.append("refused", { reason: "unauthenticated request", path: url.pathname }); return bad("authentication required", 401); }
+      // /api/whoami stays reachable for the unenrolled: it exposes only their own identity so the
+      // page can say "not enrolled" instead of failing opaquely. Everything else denies.
+      if (!identity.role && url.pathname !== "/api/whoami") { audit.append("refused", { reason: "authenticated but not enrolled (deny-by-default)", sub: identity.sub }); return bad("your sign-in is not enrolled on this console - ask an administrator", 403); }
+      if (!identity.role) return json({ identity: { sub: identity.sub, email: identity.email, name: identity.name, role: null, provider: identity.provider }, mode: "oidc" });
+      const role: Role = identity.role;
+      const need = REQUIRED_ROLE[`${request.method} ${url.pathname}`] ?? (request.method === "POST" ? "operator" : "viewer");
+      if (ROLE_RANK[role] < ROLE_RANK[need]) { audit.append("refused", { reason: `role ${role} cannot ${request.method} ${url.pathname} (needs ${need})`, sub: identity.sub }); return bad(`role ${role} is not allowed to do that (needs ${need})`, 403); }
+    } else if (request.method === "POST") {
+      // Demo-only path: per-run random token delivered in the page's meta tag. Not production auth.
+      if (options.sessionToken && request.headers.get("x-console-token") !== options.sessionToken) { audit.append("refused", { reason: "missing or wrong console token", path: url.pathname }); return bad("missing or wrong console token", 403); }
+    }
+    if (url.pathname === "/api/whoami" && request.method === "GET")
+      return json({ identity: identity ? { sub: identity.sub, email: identity.email, name: identity.name, role: identity.role, provider: identity.provider } : null, mode: options.auth ? "oidc" : "demo-token" });
+    if (url.pathname === "/api/cases" && request.method === "GET") {
+      // The audit trail carries operational detail and other users' identities: viewers get
+      // cases without it (review F6). Demo mode (no auth) is single-operator and keeps it.
+      const auditForCaller = options.auth && identity?.role === "viewer" ? [] : audit.list();
+      return json({ cases: await Promise.all(cases.map(view)), audit: auditForCaller, notifications: outbox.list(), stateCorrupted: stateCorrupted || undefined });
+    }
+    if (stateCorrupted && request.method === "POST" && url.pathname !== "/api/reset-demo") {
+      return json({ error: "Persisted state is unreadable; refusing all changes (fail-closed). An operator must restore or remove the state file.", code: "state_corrupted" }, 409);
+    }
+    if (stateCorrupted && url.pathname === "/api/reset-demo") {
+      // Reset is the sanctioned recovery: it drops all state, including any locks the corrupt file held.
+      stateCorrupted = false;
+      audit.append("state_corruption_reset", {});
+    }
+    if (url.pathname === "/api/reset-demo" && request.method === "POST") {
+      if (options.live) { audit.append("refused", { reason: "demo reset is simulator-only on a live-backed console" }); return bad("demo reset is only available in the local simulator; on the live sandbox it would erase real evidence and unresolved locks", 409); }
+      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = demoCases(); outbox = new Outbox(now); persist(); audit.append("reset", {});
+      return json({ cases: cases.map(view) });
+    }
+    if (url.pathname === "/api/notifications/promote" && request.method === "POST") {
+      const parsed = PromoteBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid promote request", 400);
+      if (!options.operatorToken) { audit.append("refused", { reason: "email promotion unavailable: no operator token configured" }); return bad("email promotion unavailable: INTENTPAY_OPERATOR_TOKEN is not configured", 403); }
+      if (parsed.data.operatorToken !== options.operatorToken) { audit.append("refused", { reason: "wrong operator token for email promotion" }); return bad("wrong operator token", 403); }
+      try {
+        const notification = await dispatcher.promote(parsed.data.id, { operator: identity ? (identity.email ?? identity.sub) : "console-operator" });
+        persist();
+        return json({ notification });
+      } catch (e) {
+        audit.append("refused", { reason: `email promotion refused: ${(e as Error).message}` });
+        return bad((e as Error).message, 409);
+      }
+    }
+    if (url.pathname === "/api/approve" && request.method === "POST") {
+      const parsed = ApproveBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid approval request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c || !c.kase.terms) return bad("case not found", 404);
+      if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new approval - a fresh approval could create a duplicate card", 409);
+      if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before approval", 409);
+      if (c.card && (c.card.status === "ACTIVE" || !c.requiresReapproval)) return bad("card already exists; change terms before re-approval", 409);
+      const d = decide(c.kase.terms, { weeklyBalances: c.forecast.weeklyBalances, reserveFloor: c.forecast.reserveFloor, breachWeek: null }, DEFAULT_POLICY, now());
+      if (d.cadence === "ESCALATE") { audit.append("refused", { reason: "policy escalated; a person must resolve before approval" }, c.kase.id); return bad("policy escalated this case; approve is not available", 409); }
+      const cap = d.cadence === "annual" ? c.kase.terms.annualPrice! : c.kase.terms.monthlyPrice!;
+      c.intent = mintIntent({ vendor: c.kase.vendor, cadence: d.cadence, amountCap: cap, currency: c.kase.terms.currency, categories: [c.kase.terms.category], terms: c.kase.terms, reconsiderAt: d.reconsiderAt });
+      // With real auth, the approver of record is the authenticated identity, not a
+      // console-global label or a client-supplied string.
+      const approverLabel = identity ? (identity.email ?? identity.sub) : approver;
+      const approval = issue(c.kase.id, c.intent, DEFAULT_POLICY.version, approverLabel, key, 60_000, now(), `Policy recommends ${d.cadence}: ${d.reasons.join("; ")}`,
+        { privateKeyPem: approverPrivateKeyPem, keyId: approverFp });
+      c.requiresReapproval = false;
+      c.log.push(`Intent approved by ${approverLabel} (${identity ? "authenticated console sign-in" : `local demo approver key ${approverFp}`}): ${c.intent.cadence}, cap ${c.intent.amountCap} ${c.intent.currency}.`);
+      audit.append("approval_issued", { cadence: c.intent.cadence, amountCap: c.intent.amountCap, currency: c.intent.currency, termsHash: c.intent.termsHash, nonce: approval.nonce, approverKeyId: approverFp, approver: approverLabel }, c.kase.id);
+      await dispatcher.deliver(outbox.emit("approval_issued", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: approverLabel, cadence: c.intent.cadence, cap: c.intent.amountCap, currency: c.intent.currency, categories: c.intent.categories.join(", "), termsHash: c.intent.termsHash } }));
+      persist();
+      return json({ approval, case: await view(c) });
+    }
+    if (url.pathname === "/api/create-card" && request.method === "POST") {
+      const parsed = CreateCardBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid create-card request", 400);
+      const approval = parsed.data.approval as Approval;
+      const c = find(approval.caseId);
+      if (!c || !c.intent) return bad("case not found", 404);
+      if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new issuance", 409);
+      if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before issue", 409);
+      if (c.requiresReapproval || !c.kase.terms || hashTerms(c.kase.terms) !== c.intent.termsHash) return bad("terms changed; fresh approval required", 409);
+      const refusal = verifier.check(approval, c.kase.id, c.intent, DEFAULT_POLICY.version, now());
+      if (refusal) { audit.append("refused", { reason: refusal, nonce: approval.nonce }, c.kase.id); return bad(refusal, 409); }
+      if (c.card?.status === "ACTIVE") return bad("active card already exists", 409);
+      // Consume BEFORE the gateway call: if the call errors after an ambiguous remote commit, a blind retry must not double-create.
+      verifier.consume(approval);
+      persist(); // the consumed nonce must survive a restart, or the approval could be replayed
+      try {
+        // One request id per logical action: the nonce alone would alias cardholder and card creation to the same idempotent slot.
+        if (!holderId) {
+          const hr = await gateway.createCardholder({ name: "Sandi Samantaray", email: "sandi@vyayasan.com" }, `${approval.nonce}:cardholder`);
+          // Round-4 N5: a failed provider lookup is unknown, not absence - the gateway made no
+          // create attempt, so lock the case as cardholder-ambiguous instead of proceeding.
+          if (hr.state === "unknown") throw new Error(`cardholder lookup failed at the provider (an error is not proof of absence): ${hr.error}`);
+          holderId = hr.cardholder.id;
+          persist(); // the cardholder id must survive a crash BEFORE card creation (round-3 N2)
+        }
+        const controls = cardPayload(c.intent);
+        c.card = await gateway.createCard({ cardholderId: holderId, controls }, `${approval.nonce}:card`);
+        // DRILL-ONLY: crash with the card committed remotely but NOT persisted locally.
+        if (options.drillCrashAt === "after-card-create") process.kill(process.pid, "SIGKILL");
+        c.freezeState = undefined;
+        c.log.push(`Card ${c.card.id} created: limit ${controls.amountLimit} ${c.intent.currency} per transaction, currencies ${controls.currencyAllowlist.join("/")}, categories ${controls.merchantCategories.join("/")}.`);
+        audit.append("card_created", { cardId: c.card.id, controls, nonce: approval.nonce }, c.kase.id);
+        await dispatcher.deliver(outbox.emit("card_created", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { limit: controls.amountLimit, currencies: controls.currencyAllowlist.join("/"), categories: controls.merchantCategories.join("/") } }));
+        persist();
+        return json({ card: c.card, case: await view(c) });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "card creation failed";
+        // Lock issuance: the provider may have committed a card (or cardholder) we cannot see.
+        // Enforcement, not a runbook: approve and create-card refuse while this stands, and only
+        // a provider card listing (/api/reconcile-card) can clear it. Persisted, so the lock
+        // survives a restart exactly like the authorization lock.
+        c.createCardUnresolved = { nonce: approval.nonce, at: now().toISOString(), error: msg, cardholderId: holderId };
+        audit.append("outcome_unknown", { error: msg, nonce: approval.nonce, locked: "card_issuance" }, c.kase.id);
+        persist();
+        return bad(`outcome unknown, reconcile before retrying: ${msg}`, 409);
+      }
+    }
+    if (url.pathname === "/api/reconcile-card" && request.method === "POST") {
+      const parsed = ReconcileCardBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid reconcile-card request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c) return bad("case not found", 404);
+      if (!c.createCardUnresolved) return bad("no unresolved card issuance on this case", 409);
+      if (typeof gateway.listCards !== "function") {
+        // No verified recovery route: live issuance stays disabled for this case (parent rule:
+        // safety enforced or live operation disabled until recovery provable).
+        return bad("this gateway cannot list provider cards, so card-issuance recovery is not provable here - issuance stays disabled for this case", 501);
+      }
+      // Cardholder resolution (round-3 N2): recorded id, in-memory id, then a provider-verified
+      // lookup by the console cardholder's email - so a crash during cardholder CREATION is not
+      // a dead-end. A gateway without lookup and no recorded id stays locked.
+      let holder = c.createCardUnresolved.cardholderId ?? holderId;
+      let holderVerifiedAbsent = false;
+      let holderLookupUnknown = false;
+      if (!holder && typeof gateway.findCardholderByEmail === "function") {
+        // Round-4 N5: tri-state. A provider error (or a throwing gateway) is "unknown" and keeps
+        // the lock; ONLY a successful empty listing counts as verified absence.
+        const res = await tryCall(() => gateway.findCardholderByEmail!("sandi@vyayasan.com"));
+        if (res?.state === "found") { holder = res.cardholder.id; holderId = holder; persist(); }
+        else if (res?.state === "absent") holderVerifiedAbsent = true;
+        else holderLookupUnknown = true;
+      }
+      if (!holder && !holderVerifiedAbsent) return bad(holderLookupUnknown
+        ? "cardholder lookup failed at the provider (an error is not proof of absence) - issuance stays locked; retry when the provider recovers"
+        : "cardholder id unknown locally (cardholder creation itself was ambiguous) and this gateway cannot look it up - issuance stays disabled for this case", 409);
+
+      // Full listing: live gateway paginates internally and fails closed on overflow. A listing
+      // READ failure keeps the lock (502); an empty listing is read TWICE before any unlock
+      // (round-3 N3): provider visibility can lag.
+      const listRemote = async (): Promise<Card[] | undefined> => {
+        if (holderVerifiedAbsent) return []; // no cardholder at the provider => no cards can exist
+        try { return await gateway.listCards(holder!); } catch { return undefined; }
+      };
+      const remote = await listRemote();
+      if (remote === undefined) {
+        audit.append("reconcile_card_failed", { error: "provider card listing failed" }, c.kase.id);
+        return bad("provider card listing failed - issuance stays locked", 502);
+      }
+      if (parsed.data.decision === "check") return json({ remoteCards: remote, cardholderId: holder ?? null, note: holderVerifiedAbsent ? "no cardholder at the provider; card adoption is impossible - attest none-created after verifying" : undefined });
+
+      if (parsed.data.decision === "none-created") {
+        // Round-4 N3 residual: two immediate reads cannot establish a consistency window. Unless
+        // the provider documents read-after-write consistency for its listing, an empty listing is
+        // not authoritative proof of absence and this unlock stays disabled (use adopt/freeze-stray).
+        if (gateway.supportsAuthoritativeAbsence !== true) return bad("this provider documents no read-after-write consistency guarantee for card listings, so an empty listing is not authoritative - 'none-created' is disabled here; resolve via adopt (verify controls) or freeze-stray against the actual provider card", 409);
+        // Operator attestation is mandatory (round-3 N3): a click is not evidence. The provider
+        // listing must be empty on TWO consecutive reads.
+        const attestation = (parsed.data.attestation ?? "").trim();
+        if (attestation.length < 8) return bad("none-created requires an attestation note (min 8 chars): state what you verified at the provider before unlocking", 409);
+        if (remote.length > 0) return bad(`provider shows ${remote.length} card(s) for this cardholder - cannot attest none-created; adopt or freeze-stray the real card instead`, 409);
+        const reread = await listRemote();
+        if (reread === undefined) return bad("provider re-read failed - issuance stays locked", 502);
+        if (reread.length > 0) return bad("the provider listing changed between reads - a card appeared; resolve the real card instead of attesting", 409);
+        delete c.createCardUnresolved;
+        c.log.push(`Operator attestation: no card was created (${attestation.slice(0, 200)}). Issuance unlocked - a fresh approval is required.`);
+        audit.append("card_issuance_reconciled", { decision: "none-created", providerCardCount: 0, attestation: attestation.slice(0, 200) }, c.kase.id);
+        persist();
+        return json({ case: await view(c) });
+      }
+
+      // adopt / freeze-stray: the named card must be present in THIS cardholder's listing.
+      const found = remote.find((r) => r.id === parsed.data.cardId);
+      if (!found) return bad("cardId is not in the provider listing for this cardholder", 409);
+
+      if (parsed.data.decision === "freeze-stray") {
+        // A stray card whose controls cannot be brought in line must NOT be adopted: freeze it
+        // at the provider, verify the freeze by re-listing, then unlock for a fresh approval.
+        const frozen = await tryCall(() => gateway.freezeCard(found.id));
+        if (!frozen) return bad("provider freeze failed - the stray card may still be spendable; lock stands", 502);
+        const reread = await listRemote();
+        const after = reread?.find((r) => r.id === found.id);
+        if (!after || after.status === "ACTIVE") return bad("freeze not confirmed by a fresh provider listing - lock stands", 409);
+        delete c.createCardUnresolved;
+        c.log.push(`Stray card ${found.id} frozen at the provider after an ambiguous issuance. Issuance unlocked - a fresh approval is required.`);
+        audit.append("card_issuance_reconciled", { decision: "freeze-stray", cardId: found.id }, c.kase.id);
+        persist();
+        return json({ case: await view(c) });
+      }
+
+      // adopt: NEVER overlay local assumptions (round-3 N1). The provider card's ACTUAL controls
+      // must provably equal the approved intent's payload - verified by read-back, or corrected
+      // provider-side and then verified. Otherwise refuse: freeze-stray + fresh approval.
+      if (!c.intent) return bad("case has no approved intent; cannot adopt", 409);
+      const controls = cardPayload(c.intent);
+      const norm = (k: CardControls) => JSON.stringify({ amountLimit: k.amountLimit, currencyAllowlist: [...k.currencyAllowlist].sort(), merchantCategories: [...k.merchantCategories].sort() });
+      const want = norm(controls);
+      let providerControls = typeof gateway.readCardControls === "function" ? await tryCall(() => gateway.readCardControls!(found.id)) : undefined;
+      if (!providerControls || norm(providerControls) !== want) {
+        if (typeof gateway.setCardControls !== "function")
+          return bad("provider card controls differ from the approved intent (or are unreadable) and this gateway cannot correct them - use freeze-stray and approve again", 409);
+        await tryCall(() => gateway.setCardControls!(found.id, controls));
+        providerControls = typeof gateway.readCardControls === "function" ? await tryCall(() => gateway.readCardControls!(found.id)) : undefined;
+        if (!providerControls || norm(providerControls) !== want)
+          return bad("could not bring the provider card in line with the approved intent (read-back mismatch) - use freeze-stray and approve again", 409);
+      }
+      c.card = { ...found, controls }; // provider-verified identical to the intent payload
+      delete c.createCardUnresolved;
+      c.freezeState = undefined;
+      c.log.push(`Card ${found.id} adopted after provider controls verified against the approved intent.`);
+      audit.append("card_issuance_reconciled", { decision: "adopt", cardId: found.id, controlsVerified: true }, c.kase.id);
+      persist();
+      return json({ card: c.card, case: await view(c) });
+    }
+    if (url.pathname === "/api/simulate" && request.method === "POST") {
+      const parsed = SimulateBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid simulate request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c?.card || !c.intent) return bad("create the card first", 409);
+      const base = { merchant: c.kase.vendor, category: c.intent.categories[0], currency: c.intent.currency };
+      const auth = parsed.data.kind === "in-policy" ? { ...base, amount: c.intent.amountCap }
+        : parsed.data.kind === "over-cap" ? { ...base, amount: c.intent.amountCap + 1 }
+        : parsed.data.kind === "wrong-currency" ? { ...base, amount: c.intent.amountCap, currency: "EUR" }
+        : { ...base, amount: c.intent.amountCap, category: "travel" };
+      // An unresolved authorization locks the card against purchase retries.
+      if (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) {
+        return json({ error: "A previous authorization's outcome is unresolved. Reconcile the card's transactions before retrying - a blind retry could duplicate a purchase.", code: "authorization_unresolved", pendingAuthorization: c.pendingAuthorization }, 409);
+      }
+      // Retry of a reconciled no-match reuses the SAME request id: the provider's idempotency
+      // deduplicates if the original attempt did commit after all. A different purchase kind is a
+      // new logical action and gets a fresh request id.
+      const requestId = c.pendingAuthorization?.reconciledAt && c.pendingAuthorization.kind === parsed.data.kind
+        ? c.pendingAuthorization.requestId
+        : `${c.kase.id}:${parsed.data.kind}:${c.transactionIds.length}`;
+      const attempt: PendingAuthorization = { requestId, kind: parsed.data.kind, cardId: c.card.id, amount: auth.amount, currency: auth.currency, merchant: auth.merchant, startedAt: now().toISOString() };
+      c.pendingAuthorization = attempt;
+      audit.append("authorization_attempt", { requestId, kind: parsed.data.kind, amount: auth.amount, currency: auth.currency, merchant: auth.merchant }, c.kase.id);
+      persist(); // the lock must exist on disk BEFORE the gateway call
+      // Gateway outages (sandbox simulator down, network) surface as a structured 502,
+      // not an uncaught exception that kills the console handler.
+      let t;
+      try {
+        t = await gateway.authorize(c.card.id, auth, requestId);
+      } catch (e) {
+        // ANY thrown error - HTTP 4xx/5xx, transport, timeout - leaves the outcome UNKNOWN.
+        // An HTTP status is not a definitive rejection: the request may have committed before the
+        // error surfaced. Only a documented decline payload (handled below, status FAILED) is a
+        // rejection. Never claim no transaction was recorded; require reconciliation first.
+        const status = (e as { status?: unknown }).status;
+        attempt.lastError = (e as Error).message.slice(0, 200);
+        const detail = typeof status === "number" ? `gateway error HTTP ${status}` : "the gateway did not confirm a response";
+        c.log.push(`Authorization outcome unknown (${detail}: ${(e as Error).message}). Reconcile the card's transactions before retrying.`);
+        audit.append("authorization_outcome_unknown", { requestId, httpStatus: typeof status === "number" ? status : undefined, error: (e as Error).message.slice(0, 200) }, c.kase.id);
+        await dispatcher.deliver(outbox.emit("gateway_outage", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { error: (e as Error).message.slice(0, 200) } }));
+        persist();
+        return json({ error: `The authorization outcome is unknown - ${detail}. Reconcile the card's transactions before retrying to avoid a duplicate.`, code: "authorization_outcome_unknown", requestId }, 502);
+      }
+      // DRILL-ONLY: crash with the authorization committed remotely but NOT persisted locally
+      // (the lock WAS persisted before the call - recovery must find it unreconciled).
+      if (options.drillCrashAt === "after-authorize") process.kill(process.pid, "SIGKILL");
+      attempt.transactionId = t.id;
+      c.transactionIds.push(t.id);
+      let transaction = t;
+      if (t.status === "PENDING") {
+        let cleared;
+        try {
+          cleared = await gateway.capture(t.id, `${t.id}:capture`);
+        } catch (e) {
+          attempt.lastError = (e as Error).message.slice(0, 200);
+          c.log.push(`Capture of authorization ${t.id} could not be confirmed: ${(e as Error).message}. Outcome unknown; reconcile before retrying.`);
+          audit.append("capture_outcome_unknown", { requestId, transactionId: t.id, error: (e as Error).message.slice(0, 200) }, c.kase.id);
+          persist();
+          return json({ error: "The authorization exists but its capture could not be confirmed. Reconcile before retrying.", code: "capture_outcome_unknown", transactionId: t.id, requestId }, 502);
+        }
+        // The capture response is the cleared truth; the list lookup is only a fallback.
+        transaction = cleared.status === "PENDING" ? ((await tryGet(t.id)) ?? cleared) : cleared;
+        c.pendingAuthorization = undefined;
+        c.log.push(`Authorization ${t.id} cleared: ${t.amount} ${t.currency} at ${t.merchant}.`);
+        audit.append("authorization_cleared", { transactionId: t.id, amount: t.amount, currency: t.currency }, c.kase.id);
+        await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap } }));
+        persist();
+      } else {
+        // A decline payload in a successful response is the ONLY definitive rejection: the gateway
+        // recorded and refused the authorization. No funds were authorized.
+        c.pendingAuthorization = undefined;
+        c.log.push(`Authorization declined by the issuing gateway (${t.failureReason}); the card enforced the approved intent.`);
+        audit.append("authorization_declined", { transactionId: t.id, reason: t.failureReason, amount: t.amount }, c.kase.id);
+        await dispatcher.deliver(outbox.emit("purchase_declined", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, reason: t.failureReason ?? "declined" } }));
+        persist();
+      }
+      return json({ transaction, case: await view(c) });
+    }
+    if (url.pathname === "/api/reconcile" && request.method === "POST") {
+      const parsed = ReconcileBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid reconcile request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c?.pendingAuthorization) return bad("no unresolved authorization to reconcile", 409);
+      const p = c.pendingAuthorization;
+      // Manual operator attestation: the person checked the provider dashboard themselves.
+      // Required because this endpoint carries no documented idempotency guarantee.
+      // A LOCAL operator attestation: the person reviewed the situation (e.g. the provider
+      // dashboard) and takes responsibility. It is not proof of provider finality, and the
+      // console's session token is a demo gate, not production authentication.
+      if (parsed.data.manualConfirm) {
+        p.reconciledAt = now().toISOString();
+        p.manualConfirm = parsed.data.manualConfirm;
+        if (p.probableMatch) {
+          // Reviewed resolution of a probable match: adopt the reviewed transaction, unlock.
+          if (!c.transactionIds.includes(p.probableMatch.transactionId)) c.transactionIds.push(p.probableMatch.transactionId);
+          audit.append("reconciliation_probable_confirmed", { requestId: p.requestId, transactionId: p.probableMatch.transactionId, attestation: parsed.data.manualConfirm }, c.kase.id);
+          c.log.push(`Operator reviewed the probable match ${p.probableMatch.transactionId} at ${p.reconciledAt}: ${parsed.data.manualConfirm}. Adopted; lock cleared.`);
+          c.pendingAuthorization = undefined;
+        } else {
+          audit.append("reconciliation_manual_confirm", { requestId: p.requestId, attestation: parsed.data.manualConfirm }, c.kase.id);
+          c.log.push(`Manually confirmed by a local operator at ${p.reconciledAt}: ${parsed.data.manualConfirm}. Retry unlocked; it reuses the original request id.`);
+        }
+        persist();
+        return json({ outcome: "manual_confirm", case: await view(c) });
+      }
+      let ledger: CardTransaction[];
+      try {
+        ledger = await gateway.listTransactions(c.card?.id);
+      } catch (e) {
+        audit.append("reconciliation_failed", { requestId: p.requestId, error: (e as Error).message.slice(0, 200) }, c.kase.id);
+        return json({ error: "Reconciliation could not read the gateway transaction ledger. Try again before retrying the purchase.", code: "reconciliation_failed" }, 502);
+      }
+      // Exact id match when the authorization was confirmed; otherwise a bounded heuristic:
+      // same card, amount, currency, merchant, and a network-reported time inside the attempt
+      // window. A ledger row without a timestamp can never auto-match. Heuristic adoption is
+      // recorded as probable, never definitive.
+      let match: CardTransaction | undefined;
+      let basis: string;
+      if (p.transactionId) {
+        match = ledger.find((t) => t.id === p.transactionId);
+        basis = "transaction_id";
+      } else {
+        const started = Date.parse(p.startedAt);
+        const windowEnd = now().getTime();
+        const candidates = ledger.filter((t) =>
+          t.cardId === p.cardId && t.amount === p.amount && t.currency === p.currency && (t.merchant ?? "") === p.merchant &&
+          t.transactedAt !== undefined && Date.parse(t.transactedAt) >= started - 5 * 60_000 && Date.parse(t.transactedAt) <= windowEnd + 5 * 60_000);
+        if (candidates.length > 1) {
+          audit.append("reconciliation_ambiguous", { requestId: p.requestId, candidates: candidates.map((t) => t.id) }, c.kase.id);
+          return json({ error: `Reconciliation found ${candidates.length} ledger transactions matching the attempt's card, amount, currency, merchant and time window. A person must resolve which one is this attempt before any retry.`, code: "reconciliation_ambiguous", candidates: candidates.map((t) => t.id) }, 409);
+        }
+        match = candidates[0];
+        basis = "card_amount_currency_merchant_time";
+      }
+      if (match) {
+        if (basis === "transaction_id") {
+          // Definitive: the authorization was confirmed before the failure, and the ledger names it.
+          if (!c.transactionIds.includes(match.id)) c.transactionIds.push(match.id);
+          c.pendingAuthorization = undefined;
+          c.log.push(`Reconciled: the attempt exists in the gateway ledger as ${match.id} (${match.status}). Recorded; no retry needed.`);
+          audit.append("reconciliation_matched", { requestId: p.requestId, transactionId: match.id, status: match.status, basis, definitive: true }, c.kase.id);
+          persist();
+          return json({ outcome: "matched", transaction: match, definitive: true, case: await view(c) });
+        }
+        // Probable only: record the candidate and KEEP THE LOCK. It can be an unrelated payment
+        // that happens to match; spending stays blocked until an operator reviews it (or a later
+        // reconcile finds a definitive id).
+        p.probableMatch = { transactionId: match.id, status: match.status, basis, foundAt: now().toISOString() };
+        c.log.push(`Reconcile found a PROBABLE match ${match.id} (${match.status}) on card, amount, currency, merchant and time window - heuristic only. The lock stays until an operator reviews it.`);
+        audit.append("reconciliation_probable_match", { requestId: p.requestId, transactionId: match.id, status: match.status, basis, definitive: false }, c.kase.id);
+        persist();
+        return json({ outcome: "probable_match", transaction: match, definitive: false, case: await view(c) });
+      }
+      // No match: the lock STAYS. Ledger visibility can lag, and this endpoint documents no
+      // idempotency guarantee, so only an operator's manual confirmation unlocks the retry.
+      audit.append("reconciliation_no_match", { requestId: p.requestId, checkedAt: now().toISOString() }, c.kase.id);
+      c.log.push(`Reconcile checked the ledger at ${now().toISOString()}: no matching transaction. The lock stays - ledger visibility can lag and this endpoint has no documented idempotency guarantee. Re-check later, or confirm manually after checking the provider dashboard.`);
+      persist();
+      return json({ outcome: "no_match", case: await view(c) });
+    }
+    if (url.pathname === "/api/change-terms" && request.method === "POST") {
+      const parsed = ChangeTermsBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid terms change", 400);
+      const c = find(parsed.data.caseId);
+      if (!c) return bad("case not found", 404);
+      if (c.pendingAuthorization) { audit.append("refused", { reason: "terms change refused while an authorization outcome is unresolved", requestId: c.pendingAuthorization.requestId }, c.kase.id); return bad("an authorization outcome is unresolved; reconcile it before changing terms", 409); }
+      const oldHash = c.kase.terms ? hashTerms(c.kase.terms) : undefined;
+      const newHash = hashTerms(parsed.data.terms);
+      if (oldHash === newHash && c.kase.rawTerms === parsed.data.rawTerms) return json({ case: await view(c) });
+      // Retain the old intent only to test a purchase against the frozen old card.
+      c.requiresReapproval = true;
+      if (c.card) {
+        c.freezeState = "pending";
+        try {
+          const frozen = await gateway.freezeCard(c.card.id, `${c.card.id}:terms:${newHash}`);
+          if (frozen.status !== "FROZEN") throw new Error("freeze not confirmed");
+          c.card = { ...c.card, status: "FROZEN" };
+          c.freezeState = "verified";
+        } catch {
+          c.freezeState = "unknown";
+          c.requiresReapproval = true;
+          audit.append("outcome_unknown", { cardId: c.card.id, reason: "terms-change freeze not confirmed" }, c.kase.id);
+          return bad("freeze outcome unknown; reconcile before continuing", 409);
+        }
+      }
+      c.kase.terms = parsed.data.terms;
+      c.kase.rawTerms = parsed.data.rawTerms;
+      c.requiresReapproval = true;
+      c.log.push("Deal changed. Approval invalidated; fresh human approval required. Old intent retained only for decline proof.");
+      audit.append("terms_changed", { oldHash, newHash, cardId: c.card?.id }, c.kase.id);
+      await dispatcher.deliver(outbox.emit(c.card ? "deal_changed_frozen" : "reapproval_required", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { freezeState: c.freezeState ?? "no card", newTerms: parsed.data.rawTerms.slice(0, 300) } }));
+      persist();
+      return json({ case: await view(c) });
+    }
+    if (url.pathname === "/api/freeze" && request.method === "POST") {
+      const parsed = FreezeBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid freeze request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c?.card) return bad("create the card first", 409);
+      // Freezing only ever tightens, so a person may do it without a bound approval.
+      c.freezeState = "pending";
+      try {
+        const frozen = await gateway.freezeCard(c.card.id, `${c.card.id}:manual-freeze`);
+        if (frozen.status !== "FROZEN") throw new Error("freeze not confirmed");
+        c.card = { ...c.card, status: "FROZEN" };
+        c.freezeState = "verified";
+      } catch {
+        c.freezeState = "unknown";
+        audit.append("outcome_unknown", { cardId: c.card.id, reason: "manual freeze not confirmed" }, c.kase.id);
+        return bad("freeze outcome unknown; reconcile before continuing", 409);
+      }
+      c.log.push("Card freeze verified. New authorizations must decline.");
+      audit.append("card_frozen", { cardId: c.card.id }, c.kase.id);
+      return json({ card: c.card, case: await view(c) });
+    }
+    if (url.pathname === "/api/reject" && request.method === "POST") {
+      const parsed = RejectBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid reject request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c) return bad("case not found", 404);
+      c.rejected = parsed.data.reason;
+      c.log.push(`Reviewer rejected the case: ${parsed.data.reason}. No card was created.`);
+      audit.append("recommendation_rejected", { reason: parsed.data.reason }, c.kase.id);
+      return json({ case: await view(c) });
+    }
+    if (url.pathname === "/api/extract" && request.method === "POST") {
+      if (!options.planner) return bad("no model configured: the terms above stay human-entered", 501);
+      const parsed = ExtractBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid extract request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c) return bad("case not found", 404);
+      if (c.intent || c.card) return bad("extraction locked after approval; use the terms-change workflow", 409);
+      const plan = await options.planner(c.kase, c.forecast);
+      if (!plan.ok) {
+        audit.append("model_error", { error: plan.error }, c.kase.id);
+        c.log.push(`Model unavailable: ${plan.error}. Human-entered terms stand.`);
+        return json({ plan, case: await view(c) });
+      }
+      audit.append(plan.gate?.accepted ? "model_proposal" : "model_proposal_rejected", {
+        cadence: plan.proposal?.cadence, confidence: plan.proposal?.confidence, finalCadence: plan.gate?.finalCadence, reasons: plan.gate?.reasons,
+        governance: plan.gate?.governance ? { rubricTotal: plan.gate.governance.rubric?.total, band: plan.gate.governance.rubric?.band, guardrails: plan.gate.governance.guardrailViolations.map((x) => x.check), reasoning: plan.gate.governance.reasoningViolations.map((x) => x.check), warnings: plan.gate.governance.warnings, critic: plan.gate.governance.critic?.veto } : undefined,
+      }, c.kase.id);
+      if (plan.gate?.accepted && plan.gate.finalCadence !== "ESCALATE" && plan.proposal) {
+        c.kase.terms = { ...plan.proposal.extracted_terms };
+        c.log.push(`Model extraction accepted by governance (${plan.gate.reasons.join("; ")}). A person still approves the intent.`);
+      } else {
+        c.log.push(`Model extraction not adopted: ${(plan.gate?.reasons ?? ["no proposal"]).join("; ")}.`);
+      }
+      return json({ plan, case: await view(c) });
+    }
+    return bad("not found", 404);
+  };
+  let writes: Promise<unknown> = Promise.resolve();
+  const handler = (request: Request): Promise<Response> => {
+    if (request.method !== "POST") return handle(request);
+    const next = writes.then(() => handle(request));
+    writes = next.catch(() => undefined);
+    return next;
+  };
+  /** false while persisted state is unreadable (fail-closed) - readiness probes use this. */
+  handler.readyCheck = () => !stateCorrupted;
+  /** Flush safety state to disk; persisted on every mutation already, called again on shutdown. */
+  // Final persist + release the store lease so a clean shutdown never blocks the next boot.
+  handler.flush = () => { persist(); if (store && "close" in store) (store as { close: () => void }).close(); };
+  return handler;
+}
+
+export interface ConsoleHandler {
+  (request: Request): Promise<Response>;
+  readyCheck(): boolean;
+  flush(): void;
+}

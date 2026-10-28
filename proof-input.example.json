@@ -1,0 +1,8 @@
+{
+  "caseId": "case_acme",
+  "inputLabel": "synthetic vendor document - file intake",
+  "original": {"monthlyPrice":100,"annualPrice":984,"currency":"USD","category":"software","noticeDays":30},
+  "changed": {"monthlyPrice":90,"annualPrice":984,"currency":"USD","category":"software","noticeDays":30},
+  "originalText": "Acme Analytics Pro synthetic offer: 100 USD per month, or 984 USD per year upfront. Category software. 30 days notice.",
+  "changedText": "Acme Analytics Pro synthetic revised offer: 90 USD per month, or 984 USD per year upfront. Category software. 30 days notice."
+}

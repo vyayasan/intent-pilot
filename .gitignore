@@ -1,0 +1,19 @@
+node_modules
+dist
+.env
+audit.jsonl
+runs/
+console-state.json
+
+# Runtime state and secrets must never be committed (review round-5 hygiene):
+# bare epoch-ms files (legacy state-file leak), sqlite stores and journals, HMAC key files.
+/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]
+*.db
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+*.hmac.key
+console-state*
+audit.jsonl

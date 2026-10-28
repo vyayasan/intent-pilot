@@ -1,0 +1,30 @@
+{
+  "name": "intent-pilot",
+  "version": "0.1.0",
+  "description": "Intent-bound purchase agent: the card enforces the approved decision. Built on the Airwallex issuing API.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/console/server.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "evals": "tsx evals/runner.ts",
+    "demo": "tsx scripts/demo.ts",
+    "verify:security": "npm audit --audit-level=high",
+    "drill:crash": "tsx scripts/crash-drill.ts",
+    "check:clean": "tsx scripts/check-clean-source.ts"
+  },
+  "dependencies": {
+    "jose": "6.2.13",
+    "pdf-lib": "^1.17.1",
+    "undici": "7.30.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^5.0.3"
+  }
+}

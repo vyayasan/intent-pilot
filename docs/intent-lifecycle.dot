@@ -1,0 +1,23 @@
+digraph lifecycle {
+  graph [rankdir=LR, bgcolor="#fffaf0", pad="0.28", nodesep="0.34", ranksep="0.55", splines=polyline, fontname="Inter", labelloc=t, label="INTENT PILOT  /  CASE AND CARD LIFECYCLE", fontsize=22, fontcolor="#183d32"];
+  node [shape=box, style="rounded,filled", color="#d8e2d8", fillcolor="#fffdf8", fontname="Inter", fontsize=11, fontcolor="#1d2a25", margin="0.16,0.12", penwidth=1.3];
+  edge [color="#35594b", penwidth=1.5, arrowsize=0.72, fontname="Inter", fontsize=9, fontcolor="#52675d"];
+  queued [label="QUEUED\nVendor terms + cash forecast", fillcolor="#f3ead8", color="#d7c8a8", penwidth=1.6];
+  reviewed [label="TERMS REVIEWED\nHuman or gated model extraction\nMalformed input escalates", fillcolor="#e8f0e8"];
+  decided [label="POLICY DECISION\nMonthly or annual, in code\nReconsider date when cash later fits", fillcolor="#dcebe0", color="#789b82"];
+  approved [label="INTENT APPROVED\nHMAC-bound · expires · single use", fillcolor="#dcebe0", color="#789b82"];
+  rejected [label="REJECTED\nReason required · audited\nNothing is issued", fillcolor="#fae9e4", color="#d7897c"];
+  issued [label="CARD ISSUED\nControls mirror the intent\nApproval re-verified at issue", fillcolor="#f3ead8", color="#d7c8a8"];
+  cleared [label="AUTHORIZATION CLEARED\nInside cap · currency · category"];
+  declined [label="AUTHORIZATION DECLINED\nOver cap · wrong currency\nwrong category - rule named", fillcolor="#fae9e4", color="#d7897c"];
+  frozen [label="FROZEN / CLOSED\nEverything declines\nState machine is explicit", fillcolor="#fae9e4", color="#d7897c"];
+  queued -> reviewed;
+  reviewed -> decided [label="terms trusted"];
+  decided -> approved [label="person approves"];
+  decided -> rejected [label="person rejects"];
+  approved -> issued [label="verified once"];
+  issued -> cleared;
+  issued -> declined;
+  issued -> frozen;
+  declined -> frozen [style=dashed, label="reviewer freezes"];
+}
