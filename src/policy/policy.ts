@@ -65,14 +65,35 @@ export function decide(terms: Terms, forecast: CashForecast, pol: Policy, now = 
     return out("ESCALATE", [`unrecognised currency code "${String(terms.currency).slice(0, 12)}": reserve math is not defined for it`]);
   if (terms.monthlyPrice === 0 || terms.annualPrice === 0)
     return out("ESCALATE", ["a zero price is a trial or a data error: a person must read what the price becomes"]);
-  if (terms.monthlyPrice == null || terms.annualPrice == null)
-    return out("ESCALATE", ["terms are missing a monthly or annual price: a person must read the vendor page"]);
+  if (terms.monthlyPrice == null && terms.annualPrice == null)
+    return out("ESCALATE", ["terms have no price at all: a person must read the vendor page"]);
   if (!Number.isFinite(forecast.reserveFloor) || forecast.reserveFloor < 0 || forecast.weeklyBalances.length === 0)
     return out("ESCALATE", ["cash forecast is missing or malformed: a person must supply the projection"]);
 
   const horizon = Math.min(pol.forecastWeeks, forecast.weeklyBalances.length);
   const base = forecast.weeklyBalances.slice(0, horizon);
   const floor = forecast.reserveFloor;
+
+  // A vendor offering one cadence is a complete pricing policy, not missing data: evaluate the cadence on offer.
+  if (terms.annualPrice == null) {
+    const m0 = breachWeek(base, terms, "monthly", floor, pol);
+    const monthlyOnlyBreach = m0 == null ? null : m0 + 1;
+    if (monthlyOnlyBreach != null)
+      return out("ESCALATE", [`the vendor offers monthly billing only and it breaches the reserve floor in week ${monthlyOnlyBreach}: a person decides`], { monthlyBreachWeek: monthlyOnlyBreach });
+    return out("monthly", ["the vendor offers monthly billing only; it stays above the reserve floor"], { monthlyBreachWeek: monthlyOnlyBreach });
+  }
+  if (terms.monthlyPrice == null) {
+    const a0 = breachWeek(base, terms, "annual", floor, pol);
+    const annualOnlyBreach = a0 == null ? null : a0 + 1;
+    if (annualOnlyBreach != null) {
+      const rw = reconsiderWeek(base, terms.annualPrice, floor); // 0-based index
+      return out("ESCALATE", [
+        `the vendor offers annual billing only and it breaches the reserve floor in week ${annualOnlyBreach}: a person decides`,
+        rw == null ? "cash never absorbs the annual price inside the forecast" : `cash can absorb the annual price from week ${rw + 1} if the purchase is deferred`,
+      ], { annualBreachWeek: annualOnlyBreach });
+    }
+    return out("annual", ["the vendor offers annual billing only; it stays above the reserve floor"], { annualBreachWeek: annualOnlyBreach });
+  }
 
   const a0 = breachWeek(base, terms, "annual", floor, pol);
   const m0 = breachWeek(base, terms, "monthly", floor, pol);

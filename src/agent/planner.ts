@@ -85,13 +85,13 @@ export interface GateResult {
  */
 export function gate(p: Proposal, c: PurchaseCase, forecast: { weeklyBalances: number[]; reserveFloor: number }, policy: Policy = DEFAULT_POLICY, now: Date = new Date(), rubricCfg: RubricConfig = DEFAULT_RUBRIC): GateResult {
   const t = p.extracted_terms;
-  const pol = t.monthlyPrice != null && t.annualPrice != null
+  const pol = t.monthlyPrice != null || t.annualPrice != null
     ? decide({ ...t }, { weeklyBalances: forecast.weeklyBalances, reserveFloor: forecast.reserveFloor, breachWeek: null }, policy, now)
     : { cadence: "ESCALATE" as const, reasons: ["extraction is missing a price"], savingsPct: null, annualBreachWeek: null, monthlyBreachWeek: null, reconsiderAt: null };
   const gov: NonNullable<GateResult["governance"]> = { guardrailViolations: [], reasoningViolations: [], warnings: [] };
   const reject = (...reasons: string[]): GateResult => ({ accepted: false, finalCadence: pol.cadence, reasons, policy: pol, governance: gov });
 
-  const b0 = t.monthlyPrice != null && t.annualPrice != null
+  const b0 = t.annualPrice != null
     ? breachWeek(forecast.weeklyBalances.slice(0, policy.forecastWeeks), { ...t }, "annual", forecast.reserveFloor, policy)
     : null;
   const annualBreach = b0 == null ? null : b0 + 1; // 1-based, matching CadenceDecision

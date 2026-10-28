@@ -49,8 +49,44 @@ describe("cadence decision", () => {
     expect(decide({ ...terms, monthlyPrice: NaN }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
     expect(decide({ ...terms, annualPrice: -5 }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
     expect(decide({ ...terms, currency: "usd" }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
-    expect(decide({ ...terms, monthlyPrice: null }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
+    expect(decide({ monthlyPrice: null, annualPrice: null, currency: "USD", category: "software", noticeDays: 30 }, forecast, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
     expect(decide(terms, { weeklyBalances: [], reserveFloor: floor, breachWeek: null }, DEFAULT_POLICY, now).cadence).toBe("ESCALATE");
+  });
+
+  it("treats a monthly-only offer as complete pricing, not missing data", () => {
+    const monthlyOnly: Terms = { ...terms, annualPrice: null };
+    const d = decide(monthlyOnly, forecast, DEFAULT_POLICY, now);
+    expect(d.cadence).toBe("monthly");
+    expect(d.savingsPct).toBeNull();
+    expect(d.annualBreachWeek).toBeNull();
+    expect(d.reasons[0]).toMatch(/monthly billing only/);
+  });
+
+  it("escalates a monthly-only offer that breaches the floor, with the breach week", () => {
+    const tight: CashForecast = { weeklyBalances: balances.map((b) => b - 950), reserveFloor: floor, breachWeek: null };
+    const d = decide({ ...terms, annualPrice: null }, tight, DEFAULT_POLICY, now);
+    expect(d.cadence).toBe("ESCALATE");
+    expect(d.monthlyBreachWeek).toBe(1);
+    expect(d.reasons[0]).toMatch(/monthly billing only.*breaches.*week 1/);
+  });
+
+  it("treats an annual-only offer as complete pricing, not missing data", () => {
+    const rich: CashForecast = { weeklyBalances: balances.map((b) => b + 2000), reserveFloor: floor, breachWeek: null };
+    const d = decide({ ...terms, monthlyPrice: null }, rich, DEFAULT_POLICY, now);
+    expect(d.cadence).toBe("annual");
+    expect(d.savingsPct).toBeNull();
+    expect(d.reasons[0]).toMatch(/annual billing only/);
+  });
+
+  it("escalates an annual-only offer that breaches, noting when cash could absorb it if deferred", () => {
+    const d = decide({ ...terms, monthlyPrice: null }, forecast, DEFAULT_POLICY, now);
+    expect(d.cadence).toBe("ESCALATE");
+    expect(d.annualBreachWeek).toBe(7);
+    expect(d.reasons.join(" ")).toMatch(/never absorbs/);
+    const recovering = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1500, 1600, 1700, 1800];
+    const d2 = decide({ ...terms, monthlyPrice: null }, { weeklyBalances: recovering, reserveFloor: floor, breachWeek: null }, DEFAULT_POLICY, now);
+    expect(d2.cadence).toBe("ESCALATE");
+    expect(d2.reasons.join(" ")).toMatch(/from week 9 if the purchase is deferred/);
   });
 
   it("fails closed on a zero price: a trial or a data error", () => {

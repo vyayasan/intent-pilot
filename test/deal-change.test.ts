@@ -54,7 +54,7 @@ describe("deal change lifecycle (simulator, not live rail proof)", () => {
   });
 });
 describe("terms change that removes the annual option (simulator)", () => {
-  it("freezes the old card, marks annual not offered, escalates the decision and blocks re-approval", async () => {
+  it("freezes the old card, marks annual not offered, decides monthly-only and allows re-approval on the new terms", async () => {
     const { seed, post } = setup();
     const { approval } = await (await post("approve", { caseId: "case_acme" })).json();
     await post("create-card", { approval });
@@ -62,14 +62,16 @@ describe("terms change that removes the annual option (simulator)", () => {
     const changed = await (await post("change-terms", { caseId: "case_acme", terms: noAnnual, rawTerms: "Acme repriced to 90 USD/month; annual plan withdrawn." })).json();
     expect(changed.case.freezeState).toBe("verified");
     expect(changed.case.requiresReapproval).toBe(true);
-    expect(changed.case.decision.cadence).toBe("ESCALATE");
-    expect(changed.case.decision.reasons.join(" ")).toMatch(/missing a monthly or annual price/);
+    expect(changed.case.decision.cadence).toBe("monthly");
+    expect(changed.case.decision.reasons.join(" ")).toMatch(/monthly billing only/);
     expect(changed.case.decision.savingsPct).toBeNull();
     expect(changed.case.decision.annualBreachWeek).toBeNull();
     const decline = await (await post("simulate", { caseId: "case_acme", kind: "in-policy" })).json();
     expect(decline.transaction.failureReason).toBe("card_frozen");
     const reapprove = await post("approve", { caseId: "case_acme" });
-    expect(reapprove.status).toBe(409);
-    expect(((await reapprove.json()).error)).toMatch(/escalat/i);
+    expect(reapprove.status).toBe(200);
+    const reapproved = await reapprove.json();
+    expect(reapproved.case.intent.cadence).toBe("monthly");
+    expect(reapproved.case.intent.amountCap).toBe(90);
   });
 });

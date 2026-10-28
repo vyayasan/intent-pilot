@@ -107,10 +107,16 @@ describe("gate", () => {
     expect(g.accepted).toBe(true);
     expect(g.finalCadence).toBe("ESCALATE");
   });
-  it("escalates when the extraction is missing a price", () => {
-    const p = { ...goodProposal, extracted_terms: { ...goodProposal.extracted_terms, annualPrice: null } };
+  it("escalates when the extraction has no price at all", () => {
+    const p = { ...goodProposal, extracted_terms: { ...goodProposal.extracted_terms, monthlyPrice: null, annualPrice: null } };
     const g = gate(p, kase, forecast, undefined, NOW);
     expect(g.policy.cadence).toBe("ESCALATE");
+    expect(g.policy.reasons.join(" ")).toMatch(/missing a price/);
+  });
+  it("runs policy on a single-cadence extraction instead of treating it as missing data", () => {
+    const p = { ...goodProposal, extracted_terms: { ...goodProposal.extracted_terms, annualPrice: null } };
+    const g = gate(p, kase, forecast, undefined, NOW);
+    expect(g.policy.cadence).toBe("monthly");
   });
 });
 

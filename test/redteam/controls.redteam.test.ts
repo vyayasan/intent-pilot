@@ -61,14 +61,20 @@ describe("redteam: control-plane attacks", () => {
   });
 
   it("approving an escalated case is refused: the human checkpoint cannot be skipped", async () => {
-    // Pulsar Ads has no annual price, so policy escalates. Hitting approve anyway must 409:
+    // A zero-price offer escalates (a trial or a data error). Hitting approve anyway must 409:
     // a person has to resolve the escalation first, there is no force-approve path.
     const audit = new AuditLog(undefined, () => NOW);
-    const api = createConsoleApi({ key: "k", approver: "sandi", now: () => NOW, audit, sessionToken: "tok", allowedOrigins: ["http://localhost:3000"] });
+    const seed = [{
+      kase: { id: "case_trial", vendor: "Trial Bait", rawTerms: "Trial Bait: 0 USD per month during the beta. Category: software.", terms: { monthlyPrice: 0, annualPrice: null, currency: "USD", category: "software", noticeDays: 30 } },
+      forecast: { weeklyBalances: Array(12).fill(1200), reserveFloor: 500 },
+      transactionIds: [] as string[],
+      log: [] as string[],
+    }];
+    const api = createConsoleApi({ key: "k", approver: "sandi", now: () => NOW, audit, sessionToken: "tok", allowedOrigins: ["http://localhost:3000"], seedCases: seed });
     const r = await api(new Request("http://localhost:3000/api/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "x-console-token": "tok", origin: "http://localhost:3000" },
-      body: JSON.stringify({ caseId: "case_pulsar" }),
+      body: JSON.stringify({ caseId: "case_trial" }),
     }));
     expect(r.status).toBe(409);
     const d = await r.json();

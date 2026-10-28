@@ -393,7 +393,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       const parsed = ApproveBody.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return bad("invalid approval request", 400);
       const c = find(parsed.data.caseId);
-      if (!c || !c.kase.terms) return bad("case not found", 404);
+      if (!c) return bad("case not found", 404);
+      if (!c.kase.terms) return bad("terms not extracted: extraction must succeed before approval", 409);
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new approval - a fresh approval could create a duplicate card", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before approval", 409);
       if (c.card && (c.card.status === "ACTIVE" || !c.requiresReapproval)) return bad("card already exists; change terms before re-approval", 409);
@@ -418,7 +419,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (!parsed.success) return bad("invalid create-card request", 400);
       const approval = parsed.data.approval as Approval;
       const c = find(approval.caseId);
-      if (!c || !c.intent) return bad("case not found", 404);
+      if (!c) return bad("case not found", 404);
+      if (!c.intent) return bad("case not approved: approve before issuing a card", 409);
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new issuance", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before issue", 409);
       if (c.requiresReapproval || !c.kase.terms || hashTerms(c.kase.terms) !== c.intent.termsHash) return bad("terms changed; fresh approval required", 409);

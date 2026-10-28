@@ -94,7 +94,8 @@ describe("case intake (acceptance mode, no demo seed)", () => {
     const { post, intake } = setup({ planner: async () => ({ ok: false, error: "model off in this test" }) });
     const id = (await (await intake()).json()).case.kase.id;
     const noTerms = await post("/api/approve", { caseId: id });
-    expect(noTerms.status).toBe(404); // a term-less case is not approvable
+    expect(noTerms.status).toBe(409); // a term-less case is not approvable: extraction must succeed first
+    expect(((await noTerms.json()).error)).toMatch(/terms not extracted/);
     const terms = { monthlyPrice: 50, annualPrice: 500, currency: "GBP", category: "software", noticeDays: 30 };
     const ct = await post("/api/change-terms", { caseId: id, terms, rawTerms: "Real Vendor Pro: 50 GBP per month, 500 GBP per year upfront. 30 days notice. Category: software." });
     expect(ct.status).toBe(200);
