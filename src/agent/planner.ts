@@ -120,6 +120,9 @@ export interface PlanResult {
   proposal?: Proposal;
   gate?: GateResult;
   error?: string;
+  /** Schema-rejection diagnostics: zod issue paths + a bounded preview of the model's invalid proposal,
+      so a live schema mismatch is diagnosable without a re-run. Never secret: it is the model's own output. */
+  rejection?: { issues: string[]; proposalPreview: string };
 }
 
 export async function extractTerms(model: ModelClient, c: PurchaseCase, forecast: { weeklyBalances: number[]; reserveFloor: number }, opts: { policy?: Policy; now?: Date; maxSteps?: number; rubric?: RubricConfig; critic?: Critic } = {}): Promise<PlanResult> {
@@ -138,7 +141,8 @@ export async function extractTerms(model: ModelClient, c: PurchaseCase, forecast
       const propose = uses.find((u) => u.name === "propose_terms");
       if (propose) {
         const parsed = ProposalSchema.safeParse(propose.input);
-        if (!parsed.success) return { ok: false, error: "proposal did not match the schema" };
+        if (!parsed.success) return { ok: false, error: "proposal did not match the schema",
+          rejection: { issues: parsed.error.issues.slice(0, 10).map((i) => `${i.path.join(".")}: ${i.code}`), proposalPreview: JSON.stringify(propose.input).slice(0, 2000) } };
         const p = parsed.data;
         let g = gate(p, c, forecast, policy, now, opts.rubric);
         // Optional veto-only second look. An error is a veto: the layer fails closed.
