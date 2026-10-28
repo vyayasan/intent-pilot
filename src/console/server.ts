@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { createConsoleApi } from "./api.js";
 import { validateConsoleConfig } from "./config.js";
 import { OidcProvider } from "./auth.js";
-import { DryRunTransport, HttpMailTransport } from "../notify/transport.js";
+import { AllowlistMailTransport, DryRunTransport, HttpMailTransport } from "../notify/transport.js";
 import { GmailApiTransport } from "../notify/gmailTransport.js";
 import { page, pageCss, pageJs } from "./page.js";
 import { DropCreateResponseGateway } from "../gateway/drop-create.js";
@@ -125,8 +125,18 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
     // full credential set; the documented send/reject contract classifies outcomes, never resent).
     : emailMode === "gmail" ? new GmailApiTransport({ clientId: env.INTENTPAY_GMAIL_CLIENT_ID!, clientSecret: env.INTENTPAY_GMAIL_CLIENT_SECRET!, refreshToken: env.INTENTPAY_GMAIL_REFRESH_TOKEN! })
     : null;
+  // Hard send boundary: when the owner approved a specific send scope, the allowlist wrapper
+  // enforces it at the transport - error and cleanup paths that emit other records stay unsent.
+  const allowKinds = env.INTENTPAY_EMAIL_ALLOW_KINDS?.split(",").map((x) => x.trim()).filter(Boolean);
+  const allowTo = env.INTENTPAY_EMAIL_ALLOW_TO?.trim();
+  // No case-id env: an intake id is random, so a case scope cannot be configured pre-boot.
+  // Single-case scope comes from fresh isolated state (INTENTPAY_SEED=none) + one intake.
+  const allowMax = env.INTENTPAY_EMAIL_ALLOW_MAX ? Number(env.INTENTPAY_EMAIL_ALLOW_MAX) : undefined;
+  const gatedTransport = emailTransport && emailTransport.name !== "dry-run" && (allowKinds?.length || allowTo || allowMax !== undefined)
+    ? new AllowlistMailTransport(emailTransport, { kinds: allowKinds?.length ? allowKinds : undefined, to: allowTo, maxSends: allowMax })
+    : emailTransport;
   // INTENTPAY_OPERATOR_TOKEN gates promotion of dry-run email records to real sends (http mode).
-  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${env.INTENTPAY_STATE_FILE ?? "console-state.db"}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: env.INTENTPAY_STATE_FILE ?? (production ? "console-state.db" : "console-state.json"), stateEngine: (env.INTENTPAY_STATE_ENGINE as "json" | "sqlite" | undefined) ?? (production ? "sqlite" : "json") });
+  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport: gatedTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${env.INTENTPAY_STATE_FILE ?? "console-state.db"}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: env.INTENTPAY_STATE_FILE ?? (production ? "console-state.db" : "console-state.json"), stateEngine: (env.INTENTPAY_STATE_ENGINE as "json" | "sqlite" | undefined) ?? (production ? "sqlite" : "json") });
 
   // Fixed-window POST rate limit per client IP: brute-forcing the session token and abuse of
   // mutating endpoints both need volume; normal console use is a handful of POSTs per action.

@@ -1,5 +1,5 @@
 import type { NotificationRecord, Outbox } from "./outbox.js";
-import { AmbiguousMailFailure, type EmailTransport, type DeliveryReceipt } from "./transport.js";
+import { AmbiguousMailFailure, WithheldMailError, type EmailTransport, type DeliveryReceipt } from "./transport.js";
 
 type AuditHook = (event: string, detail: Record<string, unknown>, caseId?: string) => void;
 
@@ -50,6 +50,10 @@ export class NotificationDispatcher {
       outbox.mark(current.id, status, { ...base, status, providerId: r.providerId, ambiguous: false, ...(promoted ? { promoted } : {}) } as DeliveryReceipt);
     } catch (e) {
       const ambiguous = e instanceof AmbiguousMailFailure;
+      // A withholding is deliberate policy, not a delivery accident: it is audited so the
+      // blocked record is visibly accounted for, never a silent drop.
+      if (e instanceof WithheldMailError)
+        this.onAudit?.("email_withheld", { notificationId: current.id, kind: current.kind, to: current.to, reason: (e as Error).message.slice(0, 300) }, current.caseId);
       outbox.mark(current.id, "failed", { ...base, status: "failed", error: (e as Error).message.slice(0, 300), ambiguous } as DeliveryReceipt);
     }
     return outbox.get(current.id);

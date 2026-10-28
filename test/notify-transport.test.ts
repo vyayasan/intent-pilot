@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Outbox } from "../src/notify/outbox.js";
 import { NotificationDispatcher } from "../src/notify/dispatcher.js";
-import { DryRunTransport, HttpMailTransport } from "../src/notify/transport.js";
+import { AllowlistMailTransport, AmbiguousMailFailure, DefiniteMailFailure, DryRunTransport, HttpMailTransport } from "../src/notify/transport.js";
 
 const input = { caseId: "case_acme", vendor: "Acme Analytics", recipient: "sandi@vyayasan.com", detail: { amount: 100, currency: "USD", cap: 100 } };
 const emit = (o: Outbox) => o.emit("purchase_cleared", input);
@@ -333,5 +333,131 @@ describe("http transport production SSRF guard", () => {
       expect(after.receipt?.ambiguous).toBe(true); // response arrived, no valid receipt -> unknown
       expect(hits).toBe(1); // /target was never requested - the redirect was not followed
     } finally { srv.close(); }
+  });
+});
+
+describe("send allowlist (hard boundary)", () => {
+  const sending = () => ({ calls: 0, name: "gmail", async send() { this.calls++; return { providerId: "msg_1" }; } });
+  const approvedInput = { caseId: "case_1", vendor: "Todoist", recipient: "sandi@vyayasan.com", detail: { approver: "sandi@vyayasan.com", cadence: "annual", cap: 60, currency: "USD", categories: "software", termsHash: "h" } };
+
+  it("delivers an allowlisted kind to the fixed recipient and withholds every other kind, visibly and audited", async () => {
+    const inner = sending();
+    const t = new AllowlistMailTransport(inner as never, { kinds: ["approval_issued", "card_created"], to: "sandi@vyayasan.com" });
+    const outbox = new Outbox();
+    const audits: Array<{ event: string; detail: Record<string, unknown> }> = [];
+    const d = new NotificationDispatcher(() => outbox, t as never, () => new Date(), (event, detail) => audits.push({ event, detail }));
+    const ok = outbox.emit("approval_issued", approvedInput);
+    await d.deliver(ok);
+    expect(outbox.get(ok.id)?.status).toBe("sent");
+    expect(inner.calls).toBe(1);
+    // An error/cleanup path emitting another kind (e.g. gateway_outage) stays UNSENT
+    const blocked = outbox.emit("gateway_outage", { ...approvedInput, detail: { ...approvedInput.detail, error: "HTTP 400" } });
+    await d.deliver(blocked);
+    const b = outbox.get(blocked.id)!;
+    expect(b.status).toBe("failed"); // visible on the record, not a silent drop
+    expect(b.receipt?.ambiguous).toBe(false);
+    expect(b.receipt?.error).toMatch(/outside the approved send allowlist - withheld/);
+    expect(inner.calls).toBe(1); // the real transport was never invoked
+    const w = audits.filter((a) => a.event === "email_withheld");
+    expect(w).toHaveLength(1);
+    expect(w[0].detail.kind).toBe("gateway_outage");
+  });
+
+  it("count discipline: after the approved number of sends, repeated approve/create events are withheld", async () => {
+    const inner = sending();
+    const t = new AllowlistMailTransport(inner as never, { kinds: ["approval_issued", "card_created"], to: "sandi@vyayasan.com", maxSends: 2 });
+    const outbox = new Outbox();
+    const d = new NotificationDispatcher(() => outbox, t as never);
+    const a1 = outbox.emit("approval_issued", approvedInput);
+    await d.deliver(a1);
+    const c1 = outbox.emit("card_created", { ...approvedInput, detail: { ...approvedInput.detail, limit: 60, currencies: "USD" } });
+    await d.deliver(c1);
+    // a repeated event (e.g. a second approval) exceeds the approved count
+    const a2 = outbox.emit("approval_issued", approvedInput);
+    await d.deliver(a2);
+    expect(outbox.get(a1.id)?.status).toBe("sent");
+    expect(outbox.get(c1.id)?.status).toBe("sent");
+    expect(outbox.get(a2.id)?.status).toBe("failed");
+    expect(outbox.get(a2.id)?.receipt?.error).toMatch(/approved send count \(2\) already reached - withheld/);
+    expect(inner.calls).toBe(2);
+  });
+
+  it("count discipline: an AMBIGUOUS outcome consumes budget (may have been sent), a definite failure does not", async () => {
+    let behavior: "ambiguous" | "definite" | "ok" = "ambiguous";
+    const inner = { calls: 0, name: "gmail", async send() { this.calls++; if (behavior === "ambiguous") throw new AmbiguousMailFailure("timeout - may have been sent"); if (behavior === "definite") throw new DefiniteMailFailure("refused - not sent"); return { providerId: "m" }; } };
+    const t = new AllowlistMailTransport(inner as never, { kinds: ["approval_issued", "card_created"], to: "sandi@vyayasan.com", maxSends: 2 });
+    const outbox = new Outbox();
+    const d = new NotificationDispatcher(() => outbox, t as never);
+    // first slot goes ambiguous: consumes one of two, outcome unknown, never retried blindly
+    const r1 = outbox.emit("approval_issued", approvedInput);
+    await d.deliver(r1);
+    expect(outbox.get(r1.id)?.status).toBe("failed");
+    expect(outbox.get(r1.id)?.receipt?.ambiguous).toBe(true);
+    // a definite failure does NOT consume
+    behavior = "definite";
+    const r2 = outbox.emit("card_created", { ...approvedInput, detail: { ...approvedInput.detail, limit: 60, currencies: "USD" } });
+    await d.deliver(r2);
+    expect(outbox.get(r2.id)?.receipt?.ambiguous).toBe(false);
+    // one budget left: a success takes it
+    behavior = "ok";
+    const r3 = outbox.emit("card_created", { ...approvedInput, detail: { ...approvedInput.detail, limit: 60, currencies: "USD" } });
+    await d.deliver(r3);
+    expect(outbox.get(r3.id)?.status).toBe("sent");
+    // budget exhausted by ambiguous(1) + sent(1): the next record is withheld
+    const r4 = outbox.emit("card_created", { ...approvedInput, detail: { ...approvedInput.detail, limit: 60, currencies: "USD" } });
+    await d.deliver(r4);
+    expect(outbox.get(r4.id)?.receipt?.error).toMatch(/approved send count \(2\) already reached - withheld/);
+    expect(inner.calls).toBe(3); // ambiguous + definite + success; the withheld record never reached the provider
+  });
+
+  it("case scope: records for any other case are withheld", async () => {
+    const inner = sending();
+    const t = new AllowlistMailTransport(inner as never, { kinds: ["approval_issued"], to: "sandi@vyayasan.com", caseId: "case_1" });
+    const outbox = new Outbox();
+    const d = new NotificationDispatcher(() => outbox, t as never);
+    const other = outbox.emit("approval_issued", { ...approvedInput, caseId: "case_2" });
+    await d.deliver(other);
+    expect(outbox.get(other.id)?.status).toBe("failed");
+    expect(outbox.get(other.id)?.receipt?.error).toMatch(/case is outside the approved send allowlist - withheld/);
+    expect(inner.calls).toBe(0);
+  });
+
+  it("state semantics: a record emitted under preview mode stays preview and is never sent by the preview boot", async () => {
+    const outbox = new Outbox();
+    const previewDispatcher = new NotificationDispatcher(() => outbox, null);
+    const rec = outbox.emit("approval_issued", approvedInput); // fresh record starts as preview
+    await previewDispatcher.deliver(rec);
+    expect(outbox.get(rec.id)?.status).toBe("preview"); // preview means nothing is sent, ever, in this boot
+    // and the send allowlist does not gate fresh records by their initial preview status:
+    // a fresh allowed record under a live gated transport reaches the transport and sends
+    const inner = sending();
+    const t = new AllowlistMailTransport(inner as never, { kinds: ["approval_issued"], to: "sandi@vyayasan.com" });
+    const outbox2 = new Outbox();
+    const d2 = new NotificationDispatcher(() => outbox2, t as never);
+    const fresh = outbox2.emit("approval_issued", approvedInput);
+    await d2.deliver(fresh);
+    expect(outbox2.get(fresh.id)?.status).toBe("sent");
+  });
+
+  it("blocks a different recipient even for an allowlisted kind", async () => {
+    const inner = sending();
+    const t = new AllowlistMailTransport(inner as never, { kinds: ["approval_issued"], to: "sandi@vyayasan.com" });
+    const outbox = new Outbox();
+    const d = new NotificationDispatcher(() => outbox, t as never);
+    const rec = outbox.emit("approval_issued", { ...approvedInput, recipient: "someone-else@example.com" });
+    await d.deliver(rec);
+    expect(outbox.get(rec.id)?.status).toBe("failed");
+    expect(inner.calls).toBe(0);
+  });
+
+  it("matches the fixed recipient case-insensitively and keeps the inner transport name", async () => {
+    const inner = sending();
+    const t = new AllowlistMailTransport(inner as never, { to: "Sandi@Vyayasan.com" });
+    expect(t.name).toBe("gmail");
+    const outbox = new Outbox();
+    const d = new NotificationDispatcher(() => outbox, t as never);
+    const rec = outbox.emit("approval_issued", approvedInput);
+    await d.deliver(rec);
+    expect(outbox.get(rec.id)?.status).toBe("sent");
   });
 });

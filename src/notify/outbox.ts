@@ -20,6 +20,8 @@ export type NotificationKind =
   | "gateway_outage"
   | "recommendation_rejected";
 
+export const NOTIFICATION_KINDS: readonly NotificationKind[] = ["approval_issued", "card_created", "deal_changed_frozen", "reapproval_required", "purchase_cleared", "purchase_declined", "gateway_outage", "recommendation_rejected"];
+
 export interface NotificationRecord {
   id: string;
   kind: NotificationKind;

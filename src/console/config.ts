@@ -12,6 +12,7 @@ export interface ConsoleConfigResult {
 }
 
 import { isPrivateHostname } from "../net/ssrf.js";
+import { NOTIFICATION_KINDS } from "../notify/outbox.js";
 
 const EMAIL_MODES = new Set(["preview", "dry-run", "http", "gmail"]);
 export { isPrivateHostname };
@@ -34,6 +35,17 @@ export function validateConsoleConfig(env: NodeJS.ProcessEnv): ConsoleConfigResu
     for (const v of ["INTENTPAY_GMAIL_CLIENT_ID", "INTENTPAY_GMAIL_CLIENT_SECRET", "INTENTPAY_GMAIL_REFRESH_TOKEN"])
       if (!env[v]) errors.push(`${v} is required when INTENTPAY_EMAIL_TRANSPORT=gmail`);
   }
+
+  // Send allowlist: narrows what a selected real transport may deliver. Unknown kinds fail
+  // closed; the allowlist can never broaden delivery beyond the approved scope.
+  if (env.INTENTPAY_EMAIL_ALLOW_KINDS) {
+    for (const k of env.INTENTPAY_EMAIL_ALLOW_KINDS.split(",").map((x) => x.trim()).filter(Boolean))
+      if (!(NOTIFICATION_KINDS as readonly string[]).includes(k)) errors.push(`INTENTPAY_EMAIL_ALLOW_KINDS contains unknown notification kind "${k}"`);
+  }
+  if (env.INTENTPAY_EMAIL_ALLOW_TO && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(env.INTENTPAY_EMAIL_ALLOW_TO))
+    errors.push("INTENTPAY_EMAIL_ALLOW_TO is not a valid email address");
+  if (env.INTENTPAY_EMAIL_ALLOW_MAX && (!Number.isInteger(Number(env.INTENTPAY_EMAIL_ALLOW_MAX)) || Number(env.INTENTPAY_EMAIL_ALLOW_MAX) < 1))
+    errors.push(`INTENTPAY_EMAIL_ALLOW_MAX must be a positive integer, got "${env.INTENTPAY_EMAIL_ALLOW_MAX}"`);
 
   if (mode === "http") {
     const endpoint = env.INTENTPAY_MAIL_ENDPOINT;

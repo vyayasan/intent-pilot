@@ -25,6 +25,47 @@ export interface DeliveryReceipt {
 /** The request definitely never delivered: validation failed, connection refused, or the
  *  endpoint answered with an error status. The email was NOT sent. */
 export class DefiniteMailFailure extends Error {}
+
+/** A send refused by the owner-approved allowlist. Distinct from an ordinary failure so the
+ *  dispatcher can audit it as a deliberate withholding - visibly recorded, never a silent drop. */
+export class WithheldMailError extends DefiniteMailFailure {}
+
+/** Hard send boundary around a real transport: only records inside the owner-approved scope
+ *  (kinds, fixed recipient, optional case scope, optional total-send cap) may pass. Anything
+ *  else is withheld: a DEFINITE not-sent, recorded on the record and audited. The allowlist
+ *  only ever narrows delivery, never broadens it; error and cleanup paths that emit records
+ *  stay unsent. maxSends counts every slot that may have sent (success AND ambiguous); only a
+ *  definite not-sent leaves the budget untouched. The guard is in-process: the durable
+ *  never-resend guarantee (a persisted "sent" record is never delivered again) is the
+ *  dispatcher's, a restart resets the counter, and an exact-count scope is runbook-enforced
+ *  as a single boot with reconciliation after any unexpected restart. */
+export interface SendAllowlist { kinds?: readonly string[]; to?: string; caseId?: string; maxSends?: number; }
+export class AllowlistMailTransport implements EmailTransport {
+  readonly name: string;
+  private sent = 0;
+  constructor(private readonly inner: EmailTransport, private readonly allow: SendAllowlist) { this.name = inner.name; }
+  async send(record: NotificationRecord): Promise<{ providerId?: string }> {
+    if (this.allow.kinds && !this.allow.kinds.includes(record.kind))
+      throw new WithheldMailError(`notification kind "${record.kind}" is outside the approved send allowlist - withheld, not sent`);
+    if (this.allow.to && record.to.trim().toLowerCase() !== this.allow.to.trim().toLowerCase())
+      throw new WithheldMailError("recipient is outside the approved send allowlist - withheld, not sent");
+    if (this.allow.caseId && record.caseId !== this.allow.caseId)
+      throw new WithheldMailError("case is outside the approved send allowlist - withheld, not sent");
+    if (this.allow.maxSends !== undefined && this.sent >= this.allow.maxSends)
+      throw new WithheldMailError(`approved send count (${this.allow.maxSends}) already reached - withheld, not sent`);
+    try {
+      const r = await this.inner.send(record);
+      this.sent++;
+      return r;
+    } catch (e) {
+      // An AMBIGUOUS outcome may actually have been sent, so it CONSUMES budget: the approved
+      // count can never be exceeded by retrying through an uncertain slot. A DEFINITE failure
+      // (never left this process, or the provider refused) does not consume.
+      if (e instanceof AmbiguousMailFailure) this.sent++;
+      throw e;
+    }
+  }
+}
 /** The request may have reached the endpoint (timeout, connection reset mid-flight): the
  *  outcome is UNKNOWN and the email may have been sent. Never resent blindly. */
 export class AmbiguousMailFailure extends Error {}
