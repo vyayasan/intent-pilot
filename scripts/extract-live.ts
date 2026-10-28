@@ -58,8 +58,8 @@ const extract = async (caseId: string) => {
   const d = await r.json().catch(() => ({}));
   return { status: r.status, ...d };
 };
-const out = process.env.EXTRACTION_RUN_OUT ?? "runs/extraction-live-oss.jsonl";
-const positional = process.argv.slice(2).filter((a, i, arr) => !a.startsWith("--") && arr[i - 1] !== "--invoice");
+const out = process.env.EXTRACTION_RUN_OUT ?? (invoiceMode ? "runs/extraction-live-invoice.jsonl" : "runs/extraction-live-oss.jsonl");
+const positional = process.argv.slice(2).filter((a, i, arr) => !a.startsWith("--") && arr[i - 1] !== "--invoice" && arr[i - 1] !== "--redact");
 for (const caseId of (positional.length ? positional : invoiceMode ? ["case_workspace_invoice"] : ["case_acme", "case_flowdesk", "case_northwind", "case_pulsar"])) {
   usage = undefined;
   const started = Date.now();
