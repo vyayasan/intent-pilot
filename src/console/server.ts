@@ -64,7 +64,9 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
     ? new OidcProvider({
         issuer: env.INTENTPAY_OIDC_ISSUER, clientId: env.INTENTPAY_OIDC_CLIENT_ID,
         clientSecret: env.INTENTPAY_OIDC_CLIENT_SECRET, redirectUri: env.INTENTPAY_OIDC_REDIRECT_URI,
-        secureCookie: production,
+        // Secure cookies follow https: mandatory in production, opt-in elsewhere via
+        // INTENTPAY_SESSION_COOKIE_SECURE=1 (a real-OIDC preview over an https tunnel needs it).
+        secureCookie: production || env.INTENTPAY_SESSION_COOKIE_SECURE === "1",
         approvers: splitList(env.INTENTPAY_OIDC_APPROVERS),
         viewers: splitList(env.INTENTPAY_OIDC_VIEWERS)
       })
@@ -73,16 +75,18 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
   const sessionToken = oidc ? undefined : randomBytes(24).toString("hex");
   let serverRef: Server | undefined;
   // Demo mode derives host/origin allowlists from the ACTUAL bound port, so an ephemeral port
-  // (PORT=0 in tests) is still covered. Production uses the explicit env lists.
+  // (PORT=0 in tests) is still covered. An explicit env list wins in ANY mode (production requires
+  // one): the exact-match list is the principled boundary for a real-OIDC preview on a tunnel
+  // host, never a wildcard.
   const currentHosts = () => {
     const a = serverRef?.address();
     const p = a && typeof a === "object" ? a.port : PORT;
     return [`localhost:${p}`, `127.0.0.1:${p}`];
   };
-  const allowedHosts = production ? env.INTENTPAY_ALLOWED_HOSTS!.split(",").map((h) => h.trim()) : undefined;
+  const allowedHosts = env.INTENTPAY_ALLOWED_HOSTS ? env.INTENTPAY_ALLOWED_HOSTS.split(",").map((h) => h.trim()) : undefined;
   const hostAllowed = (host: string) => (allowedHosts ?? currentHosts()).includes(host);
-  const allowedOrigins = production
-    ? env.INTENTPAY_ALLOWED_ORIGINS!.split(",").map((o) => o.trim())
+  const allowedOrigins = env.INTENTPAY_ALLOWED_ORIGINS
+    ? env.INTENTPAY_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
     : () => currentHosts().map((h) => `http://${h}`);
   const bind = env.INTENTPAY_BIND ?? "127.0.0.1";
   const rateLimitPerMin = Math.max(1, Number(env.INTENTPAY_RATE_LIMIT_PER_MIN ?? 120));

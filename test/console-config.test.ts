@@ -55,6 +55,28 @@ describe("validateConsoleConfig", () => {
     });
     expect(r.errors).toEqual([]);
   });
+  it("forbids the demo token whenever OIDC is configured, in any mode", () => {
+    const r = validateConsoleConfig({ ...oidc, INTENTPAY_SESSION_TOKEN: "x".repeat(48) });
+    expect(r.errors.some((e) => e.includes("SESSION_TOKEN is forbidden when OIDC is configured"))).toBe(true);
+  });
+  it("rejects a partial OIDC block in any mode, naming the missing variables", () => {
+    const r = validateConsoleConfig({ INTENTPAY_OIDC_ISSUER: "https://idp.example.com", INTENTPAY_OIDC_CLIENT_ID: "c" });
+    expect(r.errors.some((e) => e.includes("partial OIDC") && e.includes("INTENTPAY_OIDC_CLIENT_SECRET") && e.includes("INTENTPAY_OIDC_REDIRECT_URI"))).toBe(true);
+  });
+  it("accepts exact https origins/hosts outside production (real-OIDC preview) and rejects wildcards", () => {
+    const ok = validateConsoleConfig({ INTENTPAY_ALLOWED_ORIGINS: "https://3000-abc.cloudshell.dev", INTENTPAY_ALLOWED_HOSTS: "3000-abc.cloudshell.dev" });
+    expect(ok.errors).toEqual([]);
+    const badOrigin = validateConsoleConfig({ INTENTPAY_ALLOWED_ORIGINS: "https://*.cloudshell.dev" });
+    expect(badOrigin.errors.some((e) => e.includes("no wildcards"))).toBe(true);
+    const badHost = validateConsoleConfig({ INTENTPAY_ALLOWED_HOSTS: "*.cloudshell.dev" });
+    expect(badHost.errors.some((e) => e.includes("no wildcards"))).toBe(true);
+  });
+  it("rejects a plaintext issuer outside production unless it is a loopback test IdP", () => {
+    const remote = validateConsoleConfig({ ...oidc, INTENTPAY_OIDC_ISSUER: "http://idp.example.com" });
+    expect(remote.errors.some((e) => e.includes("must be https"))).toBe(true);
+    const local = validateConsoleConfig({ ...oidc, INTENTPAY_OIDC_ISSUER: "http://127.0.0.1:8080" });
+    expect(local.errors).toEqual([]);
+  });
   it("rejects non-https origins and a non-https issuer in production", () => {
     const r = validateConsoleConfig({
       INTENTPAY_ENV: "production", INTENTPAY_ALLOWED_ORIGINS: "http://console.example.com",

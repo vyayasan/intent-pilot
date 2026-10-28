@@ -98,6 +98,20 @@ describe("OIDC sign-in (protocol-verified locally against a real test IdP)", () 
     expect((await c.go(`${base}/api/cases`)).status).toBe(200);
   });
 
+  it("INTENTPAY_SESSION_COOKIE_SECURE=1 arms the Secure attribute outside production; unset leaves it off", async () => {
+    const secureRig = await startRig({ INTENTPAY_SESSION_COOKIE_SECURE: "1" });
+    const c1 = client();
+    const login1 = await c1.go(`${secureRig.base}/auth/login?return_to=/`);
+    const cb1 = await c1.go((await c1.go(login1.headers.get("location")!)).headers.get("location")!);
+    expect(cb1.headers.getSetCookie().some((c) => c.includes("Secure"))).toBe(true);
+
+    const plainRig = await startRig();
+    const c2 = client();
+    const login2 = await c2.go(`${plainRig.base}/auth/login?return_to=/`);
+    const cb2 = await c2.go((await c2.go(login2.headers.get("location")!)).headers.get("location")!);
+    expect(cb2.headers.getSetCookie().some((c) => c.includes("Secure"))).toBe(false);
+  });
+
   it("PKCE is real: the token exchange carried a verifier and the IdP checked it", async () => {
     const { base, idp } = await startRig();
     await signIn(base);
