@@ -65,3 +65,26 @@ describe("live gateway close read-back discipline", () => {
     expect(client.call).toHaveBeenCalledWith("GET", "/api/v1/issuing/cards/c");
   });
 });
+
+describe("ladder after close (simulator)", () => {
+  it("allows a fresh approval on a closed-card case and issues a replacement card", async () => {
+    const { post, approvedCard } = setup();
+    const old = await approvedCard();
+    await post("freeze", { caseId: "case_acme" });
+    expect((await post("close-card", { caseId: "case_acme" })).status).toBe(200);
+    const fresh = await post("approve", { caseId: "case_acme" });
+    expect(fresh.status).toBe(200);
+    const { approval } = await fresh.json();
+    const replacement = await post("create-card", { approval });
+    expect(replacement.status).toBe(200);
+    const { card } = await replacement.json();
+    expect(card.id).not.toBe(old.id);
+    expect(card.status).toBe("ACTIVE");
+  });
+  it("still refuses re-approval over a FROZEN card without a terms change", async () => {
+    const { post, approvedCard } = setup();
+    await approvedCard();
+    await post("freeze", { caseId: "case_acme" });
+    expect((await post("approve", { caseId: "case_acme" })).status).toBe(409);
+  });
+});

@@ -27,7 +27,7 @@ Demo fixture data:
 2. **Decide.** `src/policy/policy.ts` computes the cadence: weekly balances, first week below the reserve floor, savings percent, reconsider date. Malformed inputs escalate to a person.
 3. **Approve.** A person approves the intent in the console — an HMAC signature over the terms hash, intent hash, policy version, approver, expiry and nonce.
 4. **Issue.** Card controls derive from the approved intent and nothing else. The approval is re-verified before issue, consumed once, and refused if the deal changed.
-5. **Enforce.** Authorizations clear or decline inside the card's controls. The simulator and the live Airwallex gateway implement the same `IssuingGateway` interface. Control-plane mutations carry `request_id` with retry-stable payloads, which the provider deduplicates; the sandbox authorization simulator documents no request-id dedupe, so an uncertain authorization outcome stays locked for reconciliation rather than retried.
+5. **Enforce.** Authorizations clear or decline inside the card's controls. The simulator and the live Airwallex gateway implement the same `IssuingGateway` interface. Control-plane mutations carry `request_id` with retry-stable payloads under the provider's documented idempotency contract - the control plane rejects an aliased request id reused with a different payload (observed 6 Oct); identical-payload replay dedupe is documented, not separately observed. The sandbox authorization simulator documents no request-id dedupe, so an uncertain authorization outcome stays locked for reconciliation rather than retried.
 
 <p align="center"><img src="docs/1-system-architecture.png" alt="System architecture" width="900"/></p>
 
@@ -61,13 +61,13 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
 ## Verify
 
 ```bash
-npm test        # 423 tests
+npm test        # 425 tests
 npm run evals   # 58 deterministic scenarios, writes evals/RESULTS.md
 npm run smoke   # end-to-end flow in one process
 npm run typecheck
 ```
 
-- **423 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
+- **425 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
 - **58 deterministic eval scenarios** — policy boundaries, fail-closed inputs, card-control declines, scripted model proposals through the governance gate ([evals/RESULTS.md](evals/RESULTS.md)).
 
 ## Proven live
@@ -82,6 +82,7 @@ npm run typecheck
 - Decisions live in deterministic code; the model only extracts and proposes, and rejections fail closed to a person.
 - The console supports authenticated sign-in (Google OIDC) with enrolled roles - approver, viewer, operator; unlisted users are denied by default - exercised as the approver session in the 27 Oct 2026 sandbox run. Approval signatures still come from a console-local ed25519 key (generated per install, persisted in the gitignored state file), and card creation verifies that signature, so a foreign or stripped approval is refused. The key proves local integrity (this install's key signed the approval), not by itself a human's identity: that binding comes from the authenticated session, and production binds approvals to SSO-managed identity.
 - The simulator mirrors the sandbox semantics relied on here; one documented difference: the sandbox simulator authorization endpoint does not deduplicate request ids, the control plane does.
+- Permanent card close is API-only (`POST /api/close-card`), deliberately not a console button: the ladder is ACTIVE -> FROZEN -> CLOSED, so no single request closes a transacting card. It refuses while an authorization outcome is unresolved, requires a verified freeze first, confirms by provider read-back (an unconfirmed close is `outcome_unknown` and stays locked for reconciliation), and audits `card_closed`. After a close, a fresh approval issues a replacement card.
 - The Visa-side modules (TAP-style signature verification, VIC-shaped instruction adapter) run against fixtures. No live Visa integration is claimed.
 
 ## Email delivery (preview by default)

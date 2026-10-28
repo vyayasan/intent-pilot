@@ -100,7 +100,7 @@ function current() { return state.cases.filter(function(c){ return c.kase.id ===
 function render() {
   var q = document.getElementById('cases');
   q.innerHTML = state.cases.map(function(c){
-    var stage = c.createCardUnresolved ? 'card issuance unresolved - locked' : (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) ? 'authorization unresolved - locked' : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'freeze unverified - blocked' : c.requiresReapproval ? 'deal changed - review required' : c.card ? (c.card.status === 'FROZEN' ? 'card frozen' : 'card active') : (c.intent ? 'approved' : (c.rejected ? 'rejected' : 'awaiting review'));
+    var stage = c.createCardUnresolved ? 'card issuance unresolved - locked' : (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) ? 'authorization unresolved - locked' : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'freeze unverified - blocked' : c.requiresReapproval ? 'deal changed - review required' : c.card ? (c.card.status === 'CLOSED' ? 'card closed' : c.card.status === 'FROZEN' ? 'card frozen' : 'card active') : (c.intent ? 'approved' : (c.rejected ? 'rejected' : 'awaiting review'));
     return '<button class="casebtn' + (c.kase.id === state.sel ? ' on' : '') + '" data-id="' + esc(c.kase.id) + '"><b>' + esc(c.kase.vendor) + '</b><span>' + stage + '</span></button>';
   }).join('');
   Array.prototype.forEach.call(q.querySelectorAll('.casebtn'), function(b){ b.onclick = function(){ state.sel = b.dataset.id; state.approval = null; state.cardRecon = null; render(); }; });
@@ -139,8 +139,8 @@ function render() {
     (c.intent && !c.requiresReapproval && !c.termsSource && !state.live ? '<button class="act warn" id="change-deal">Demo fixture: cheaper deal arrives</button>' : '') +
     (c.intent && !c.requiresReapproval ? '<button class="act sec" id="change-real">Change deal: enter real terms</button>' : '') +
     (!c.intent && !c.card ? '<button class="act sec" id="extract">Extract terms (model)</button>' : '') +
-    (!c.createCardUnresolved && d.cadence !== 'ESCALATE' && c.freezeState !== 'unknown' && c.freezeState !== 'pending' && (!c.intent || c.requiresReapproval) ? '<button class="act" id="approve">' + (c.requiresReapproval ? 'Approve new deal' : 'Approve intent') + '</button>' : '') +
-    (!c.createCardUnresolved && c.intent && !c.requiresReapproval && (!c.card || (c.card.status === 'FROZEN' && state.approval)) ? '<button class="act" id="mkcard">Create card</button>' : '') +
+    (!c.createCardUnresolved && d.cadence !== 'ESCALATE' && c.freezeState !== 'unknown' && c.freezeState !== 'pending' && (!c.intent || c.requiresReapproval || (c.card && c.card.status === 'CLOSED')) ? '<button class="act" id="approve">' + (c.requiresReapproval ? 'Approve new deal' : (c.card && c.card.status === 'CLOSED') ? 'Approve fresh intent' : 'Approve intent') + '</button>' : '') +
+    (!c.createCardUnresolved && c.intent && !c.requiresReapproval && (!c.card || ((c.card.status === 'FROZEN' || c.card.status === 'CLOSED') && state.approval)) ? '<button class="act" id="mkcard">Create card</button>' : '') +
     (c.card ? '<button class="act sec" data-sim="in-policy">Simulate: in policy</button><button class="act sec" data-sim="over-cap">Simulate: over cap</button><button class="act sec" data-sim="wrong-currency">Simulate: wrong currency</button><button class="act sec" data-sim="wrong-category">Simulate: wrong category</button>' + (c.card.status === 'ACTIVE' ? '<button class="act warn" id="freeze">Freeze card</button>' : '') : '') +
     (!c.rejected && !c.card ? '<button class="act warn" id="reject">Reject</button>' : '') +
     '</div>' +

@@ -405,7 +405,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (!c.kase.terms) return bad("terms not extracted: extraction must succeed before approval", 409);
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new approval - a fresh approval could create a duplicate card", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before approval", 409);
-      if (c.card && (c.card.status === "ACTIVE" || !c.requiresReapproval)) return bad("card already exists; change terms before re-approval", 409);
+      if (c.card && c.card.status !== "CLOSED" && (c.card.status === "ACTIVE" || !c.requiresReapproval)) return bad("card already exists; change terms before re-approval", 409);
       const d = decide(c.kase.terms, { weeklyBalances: c.forecast.weeklyBalances, reserveFloor: c.forecast.reserveFloor, breachWeek: null }, DEFAULT_POLICY, now());
       if (d.cadence === "ESCALATE") { audit.append("refused", { reason: "policy escalated; a person must resolve before approval" }, c.kase.id); return bad("policy escalated this case; approve is not available", 409); }
       const cap = d.cadence === "annual" ? c.kase.terms.annualPrice! : c.kase.terms.monthlyPrice!;
