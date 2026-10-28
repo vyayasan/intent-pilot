@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { createConsoleApi } from "./api.js";
+import { resolveStateTarget } from "./state.js";
 import { validateConsoleConfig } from "./config.js";
 import { OidcProvider } from "./auth.js";
 import { AllowlistMailTransport, DryRunTransport, HttpMailTransport } from "../notify/transport.js";
@@ -111,7 +112,11 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
   // trail, so cost reconciliation reads the append-only record instead of an operator's estimate.
   // Scope is narrow: failed/timed-out requests and any OpenAI-compatible extractor path are NOT
   // captured here, so this is not a complete bill. Token counts only - never prompts, keys or responses.
-  const auditLog = new AuditLog(env.INTENTPAY_AUDIT_FILE ?? "audit.jsonl");
+  // State/audit targets come from the SAME resolution the export tool uses (round-8 C/D):
+  // identical defaults and extension autodetect, so export-before-teardown can never aim at
+  // a different store than the console actually wrote.
+  const stateTarget = resolveStateTarget(env);
+  const auditLog = new AuditLog(stateTarget.auditFile);
   const model = modelFromEnv(env, { onUsage: (u) => auditLog.append("model_usage", { model: env.ANTHROPIC_MODEL ?? DEFAULT_MODEL, inputTokens: u.input_tokens ?? null, outputTokens: u.output_tokens ?? null }) });
   // Email transport: preview (nothing sent) unless the operator explicitly selects one.
   // dry-run exercises the pipeline without a provider; http is EXPERIMENTAL and posts to
@@ -136,7 +141,7 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
     ? new AllowlistMailTransport(emailTransport, { kinds: allowKinds?.length ? allowKinds : undefined, to: allowTo, maxSends: allowMax })
     : emailTransport;
   // INTENTPAY_OPERATOR_TOKEN gates promotion of dry-run email records to real sends (http mode).
-  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport: gatedTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${env.INTENTPAY_STATE_FILE ?? "console-state.db"}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: env.INTENTPAY_STATE_FILE ?? (production ? "console-state.db" : "console-state.json"), stateEngine: (env.INTENTPAY_STATE_ENGINE as "json" | "sqlite" | undefined) ?? (production ? "sqlite" : "json") });
+  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport: gatedTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${stateTarget.stateFile}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: stateTarget.stateFile, unresolvedRestoreFile: env.INTENTPAY_UNRESOLVED_RESTORE_FILE, stateEngine: stateTarget.stateEngine });
 
   // Fixed-window POST rate limit per client IP: brute-forcing the session token and abuse of
   // mutating endpoints both need volume; normal console use is a handful of POSTs per action.

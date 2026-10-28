@@ -1,6 +1,7 @@
 import { ROLE_RANK, type AuthProvider, type Identity, type Role } from "./auth.js";
 import { openStateStore, type StateStore } from "./state.js";
 import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { issue, approverKeyId, ApprovalVerifier, type Approval } from "../approval/approval.js";
 import { hashIntent, hashTerms, mintIntent } from "../intent/intent.js";
@@ -82,7 +83,8 @@ const ReconcileBody = z.object({ caseId: z.string(), manualConfirm: z.string().t
 const ChangeTermsBody = z.object({ caseId: z.string(), terms: ExtractedTermsSchema, rawTerms: z.string().trim().min(1).max(8000) });
 const ExtractBody = z.object({ caseId: z.string() });
 // Real case intake: the acceptance flow starts from actual vendor text, never seeded demo data.
-// weeklyBalances/reserveFloor come from an observed cash position recorded in sourceNote;
+// weeklyBalances/reserveFloor are TEST SCENARIO INPUTS (labelled in the UI and case log), never
+// observed finances; sourceNote/forecastSource record provenance.
 // rawTerms is stored as inert text - it is never fetched, resolved, or dereferenced.
 const IntakeBody = z.object({
   vendor: z.string().trim().min(1).max(120),
@@ -93,6 +95,18 @@ const IntakeBody = z.object({
   forecastSource: z.string().trim().min(1).max(200).optional(),
 });
 const PromoteBody = z.object({ id: z.string(), operatorToken: z.string() });
+// Resolving a restored orphan/conflict is an operator attestation (round-8 A), NOT verified
+// provider evidence and never cryptographic resolution: the person inspected the provider and
+// takes responsibility, the 8-char minimum is a shape check only, and the operator token gates
+// WHO may resolve, not WHAT is true. Like reconcile's manualConfirm, finality comes only from
+// the provider.
+const ResolveRestoredBody = z.object({
+  caseId: z.string(),
+  requestId: z.string(),
+  resolution: z.enum(["no_matching_transaction", "transaction_recorded", "duplicate_confirmed_frozen"]),
+  evidence: z.string().trim().min(8).max(1024),
+  operatorToken: z.string(),
+});
 
 export interface CaseView {
   kase: PurchaseCase;
@@ -125,6 +139,8 @@ export interface ConsoleApiOptions {
   /** Optional model-backed extractor. It proposes terms; governance gates them; a person still approves the intent. */
   /** Where case state (including unresolved authorization locks) is persisted across restarts. */
   stateFile?: string;
+  /** Optional path to a preserved unresolved-authorization export; restored at boot, never auto-reconciled. */
+  unresolvedRestoreFile?: string;
   /** Storage engine for stateFile: "json" (demo default, atomic tmp+rename) or "sqlite"
    *  (WAL, transactional commits - production default via server.ts). Ignored when store is given. */
   stateEngine?: "json" | "sqlite";
@@ -266,6 +282,50 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (typeof loadedState.holderId === "string") holderId = loadedState.holderId;
     } catch { stateCorrupted = true; }
   }
+  // Boot-time restore of PRESERVED unresolved authorizations. When the live state file is gone
+  // but an operator export survived (export-before-teardown), the retry lock must come back with
+  // the process - an unresolved attempt that is only archived could be blind-retried into a
+  // duplicate purchase. A restored lock never marks anything reconciled; only the normal
+  // /api/reconcile path (exact ledger id match or operator attestation) clears it.
+  const restoredUnresolved: { caseId: string; requestId: string; cardId: string; kind: "orphan" | "conflict"; keptRequestId?: string }[] = [];
+  if (options.unresolvedRestoreFile) {
+    try {
+      const raw = JSON.parse(readFileSync(options.unresolvedRestoreFile, "utf8"));
+      const entries = (Array.isArray(raw) ? raw : raw.unresolved) as { caseId?: string; pendingAuthorization?: PendingAuthorization }[];
+      if (!Array.isArray(entries)) throw new Error("bad restore shape");
+      for (const e of entries) {
+        const pa = e?.pendingAuthorization;
+        if (!e?.caseId || !pa?.requestId || !pa.cardId) throw new Error("bad restore entry");
+        if (pa.reconciledAt) continue; // already resolved before export - nothing to restore
+        const c = cases.find((x) => x.kase.id === e.caseId);
+        if (c && !c.pendingAuthorization) {
+          c.pendingAuthorization = { ...pa, lastError: `${pa.lastError ?? "unknown outcome"} [lock restored from preserved export at boot]` };
+          c.log.push(`Unresolved authorization ${pa.requestId} restored from preserved export - purchases stay refused until reconciled.`);
+          audit.append("unresolved_authorization_restored", { requestId: pa.requestId, cardId: pa.cardId }, e.caseId);
+        } else if (c && c.pendingAuthorization!.requestId === pa.requestId) {
+          // Idempotent re-restore of the same preserved attempt: the live lock already enforces it.
+        } else if (c) {
+          // CONFLICT (round-8 E): the case carries a DIFFERENT live unresolved lock. Never
+          // overwrite it and never drop the preserved attempt: the live lock stays on the case,
+          // the preserved attempt joins the gated orphan list as a conflict, loudly audited.
+          restoredUnresolved.push({ caseId: e.caseId, requestId: pa.requestId, cardId: pa.cardId, kind: "conflict", keptRequestId: c.pendingAuthorization!.requestId });
+          audit.append("unresolved_authorization_restore_conflict", { keptRequestId: c.pendingAuthorization!.requestId, conflictingRequestId: pa.requestId, cardId: pa.cardId }, e.caseId);
+        } else {
+          // The case itself did not survive: an ORPHAN. It cannot be enforced case-locally, so
+          // it joins the global purchase gate below - display alone would be zero enforcement
+          // (round-8 A). Never auto-attach it to a same-vendor case: vendor is not identity.
+          restoredUnresolved.push({ caseId: e.caseId, requestId: pa.requestId, cardId: pa.cardId, kind: "orphan" });
+          audit.append("unresolved_authorization_tombstone", { requestId: pa.requestId, cardId: pa.cardId }, e.caseId);
+        }
+      }
+      if (restoredUnresolved.length)
+        console.error(`WARNING: ${restoredUnresolved.length} unresolved authorization(s) restored without their case; the affected card ids must be reconciled at the provider before any reuse: ${restoredUnresolved.map((t) => `${t.cardId} (${t.requestId})`).join(", ")}. The purchase gate exists only while this process boots WITH the restore file - keep INTENTPAY_UNRESOLVED_RESTORE_FILE configured on every boot until every entry is resolved (docs/RECOVERY.md section 6.3).`);
+    } catch (err) {
+      // Fail closed like corrupt state: an unreadable restore file must not silently drop locks.
+      stateCorrupted = true;
+      console.error("unresolved-restore file unreadable - failing closed:", (err as Error).message);
+    }
+  }
   const persist = () => {
     if (!store) return;
     // JsonFileStore: atomic tmp+rename. SqliteStore: one transaction for the whole aggregate -
@@ -332,7 +392,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
     "POST /api/approve": "approver",
     "POST /api/reconcile-card": "operator",
     "POST /api/reject": "approver",
-    "POST /api/notifications/promote": "approver"
+    "POST /api/notifications/promote": "approver",
+    "POST /api/resolve-restored": "approver"
   };
 
   const handle = async (request: Request): Promise<Response> => {
@@ -368,7 +429,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       // The audit trail carries operational detail and other users' identities: viewers get
       // cases without it (review F6). Demo mode (no auth) is single-operator and keeps it.
       const auditForCaller = options.auth && identity?.role === "viewer" ? [] : audit.list();
-      return json({ cases: await Promise.all(cases.map(view)), audit: auditForCaller, notifications: outbox.list(), live: options.live === true, stateCorrupted: stateCorrupted || undefined });
+      return json({ cases: await Promise.all(cases.map(view)), audit: auditForCaller, notifications: outbox.list(), live: options.live === true, stateCorrupted: stateCorrupted || undefined, restoredUnresolved: restoredUnresolved.length ? restoredUnresolved : undefined });
     }
     if (stateCorrupted && request.method === "POST" && url.pathname !== "/api/reset-demo") {
       return json({ error: "Persisted state is unreadable; refusing all changes (fail-closed). An operator must restore or remove the state file.", code: "state_corrupted" }, 409);
@@ -378,10 +439,32 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       stateCorrupted = false;
       audit.append("state_corruption_reset", {});
     }
+    // Orphan gate (round-8 A): preserved unresolved authorizations whose case did not survive
+    // (or that conflicted with a live lock) cannot be enforced case-locally, so every
+    // new-purchase path is refused until an operator resolves each one with provider evidence.
+    // Deliberately global and fail-closed: a same-vendor case is NOT the same purchase, and a
+    // silently allowed fresh purchase could duplicate an attempt the provider committed.
+    if (restoredUnresolved.length && request.method === "POST" && ["/api/approve", "/api/create-card", "/api/simulate", "/api/change-terms"].includes(url.pathname)) {
+      audit.append("refused", { reason: "orphan unresolved authorization gate", orphans: restoredUnresolved.map((o) => o.requestId) });
+      return json({ error: `${restoredUnresolved.length} preserved unresolved authorization(s) have no surviving case to enforce them; new purchases are refused until each is resolved by an operator with provider evidence (POST /api/resolve-restored).`, code: "orphan_authorization_unresolved", orphans: restoredUnresolved }, 409);
+    }
     if (url.pathname === "/api/reset-demo" && request.method === "POST") {
       if (options.live) { audit.append("refused", { reason: "demo reset is simulator-only on a live-backed console" }); return bad("demo reset is only available in the local simulator; on the live sandbox it would erase real evidence and unresolved locks", 409); }
-      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = options.seedCases && options.seedCases.length === 0 ? [] : demoCases(); outbox = new Outbox(now); persist(); audit.append("reset", {});
+      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = options.seedCases && options.seedCases.length === 0 ? [] : demoCases(); outbox = new Outbox(now); restoredUnresolved.length = 0; persist(); audit.append("reset", {});
       return json({ cases: cases.map(view) });
+    }
+    if (url.pathname === "/api/resolve-restored" && request.method === "POST") {
+      const parsed = ResolveRestoredBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid resolve request: caseId, requestId, resolution and an evidence attestation (min 8 chars) are required", 400);
+      if (!options.operatorToken) { audit.append("refused", { reason: "orphan resolution unavailable: no operator token configured" }); return bad("orphan resolution unavailable: INTENTPAY_OPERATOR_TOKEN is not configured", 403); }
+      if (parsed.data.operatorToken !== options.operatorToken) { audit.append("refused", { reason: "wrong operator token for orphan resolution" }); return bad("wrong operator token", 403); }
+      const idx = restoredUnresolved.findIndex((o) => o.caseId === parsed.data.caseId && o.requestId === parsed.data.requestId);
+      if (idx === -1) return bad("no such restored unresolved authorization", 404);
+      const [resolved] = restoredUnresolved.splice(idx, 1);
+      audit.append("restored_orphan_resolved", { requestId: resolved.requestId, cardId: resolved.cardId, kind: resolved.kind, resolution: parsed.data.resolution, evidence: parsed.data.evidence }, resolved.caseId);
+      // Not persisted by design: re-pointing a later boot at the same stale export re-raises the
+      // orphan (fail-closed). The runbook has the operator retire the restore file once clear.
+      return json({ resolved, remainingOrphans: restoredUnresolved });
     }
     if (url.pathname === "/api/notifications/promote" && request.method === "POST") {
       const parsed = PromoteBody.safeParse(await request.json().catch(() => null));

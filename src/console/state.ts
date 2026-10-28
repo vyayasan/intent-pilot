@@ -257,3 +257,47 @@ export function openStateStore(path: string, engine?: "json" | "sqlite"): StateS
   }
   return store;
 }
+
+/**
+ * Shared state/audit target resolution (review round-8 C/D): the console server AND the export
+ * tool must agree on where state and audit live. Engine autodetects from the state-file
+ * extension (.db/.sqlite -> sqlite, .json -> json); an explicit INTENTPAY_STATE_ENGINE wins;
+ * the production/demo default applies only when neither says anything.
+ */
+export function resolveStateTarget(env: NodeJS.ProcessEnv): { stateFile: string; stateEngine?: "json" | "sqlite"; auditFile: string } {
+  const production = env.INTENTPAY_ENV === "production";
+  const stateFile = env.INTENTPAY_STATE_FILE ?? (production ? "console-state.db" : "console-state.json");
+  const explicit = env.INTENTPAY_STATE_ENGINE as "json" | "sqlite" | undefined;
+  const stateEngine = explicit ?? (/\.(db|sqlite)$/.test(stateFile) ? "sqlite" : /\.json$/.test(stateFile) ? "json" : production ? "sqlite" : "json");
+  return { stateFile, stateEngine, auditFile: env.INTENTPAY_AUDIT_FILE ?? "audit.jsonl" };
+}
+
+/**
+ * Read-only state load for evidence export (review round-8 B). A WRITER open (openStateStore)
+ * takes the single-writer lease and holds it until close() - an export that opened one and
+ * exited leaked the lease for its 30-min TTL and broke the next boot. This path never touches
+ * the lease: sqlite is opened without lease acquisition or any write pragma, read, and CLOSED
+ * before returning, so an active console's writer lease is never disturbed and no lease is
+ * left behind when the export exits.
+ */
+export function loadStateReadOnly(path: string, engine?: "json" | "sqlite"): LoadResult {
+  const useSqlite = engine === "sqlite" || (!engine && /\.(db|sqlite)$/.test(path));
+  if (!useSqlite) return new JsonFileStore(path).load();
+  if (!existsSync(path)) return null;
+  const db = new DatabaseSync(path); // read connection: WAL allows concurrent readers beside one writer
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    const rows = db.prepare("SELECT k, v FROM state").all() as { k: string; v: string }[];
+    if (!rows.length) return null;
+    const map = Object.fromEntries(rows.map((r) => [r.k, JSON.parse(r.v)]));
+    if (!Array.isArray(map.cases)) return "corrupted";
+    return {
+      cases: map.cases,
+      usedNonces: Array.isArray(map.usedNonces) ? map.usedNonces : [],
+      notifications: map.notifications ?? [],
+      approverKey: map.approverKey ?? { privateKeyPem: "", keyId: "" },
+      holderId: "holderId" in map ? map.holderId : null
+    };
+  } catch { return "corrupted"; }
+  finally { try { db.close(); } catch { /* already closed */ } }
+}
