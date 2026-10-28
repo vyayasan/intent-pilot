@@ -107,9 +107,10 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
   };
   const live = makeGateway();
   // A model (ANTHROPIC_API_KEY, or EXTRACTION_BASE_URL+EXTRACTION_MODEL for any OpenAI-compatible endpoint) turns on the model extractor. Without one /api/extract answers 501 and terms stay human-entered.
-  // Usage capture: every billable model request appends its token counts to the audit trail, so cost
-  // reconciliation reads the append-only record instead of an operator's estimate. Token counts only -
-  // never prompts, keys or responses.
+  // Usage capture: each successful Anthropic response appends its reported token counts to the audit
+  // trail, so cost reconciliation reads the append-only record instead of an operator's estimate.
+  // Scope is narrow: failed/timed-out requests and any OpenAI-compatible extractor path are NOT
+  // captured here, so this is not a complete bill. Token counts only - never prompts, keys or responses.
   const auditLog = new AuditLog(env.INTENTPAY_AUDIT_FILE ?? "audit.jsonl");
   const model = modelFromEnv(env, { onUsage: (u) => auditLog.append("model_usage", { model: env.ANTHROPIC_MODEL ?? DEFAULT_MODEL, inputTokens: u.input_tokens ?? null, outputTokens: u.output_tokens ?? null }) });
   // Email transport: preview (nothing sent) unless the operator explicitly selects one.

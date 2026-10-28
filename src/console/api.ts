@@ -367,7 +367,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       // The audit trail carries operational detail and other users' identities: viewers get
       // cases without it (review F6). Demo mode (no auth) is single-operator and keeps it.
       const auditForCaller = options.auth && identity?.role === "viewer" ? [] : audit.list();
-      return json({ cases: await Promise.all(cases.map(view)), audit: auditForCaller, notifications: outbox.list(), stateCorrupted: stateCorrupted || undefined });
+      return json({ cases: await Promise.all(cases.map(view)), audit: auditForCaller, notifications: outbox.list(), live: options.live === true, stateCorrupted: stateCorrupted || undefined });
     }
     if (stateCorrupted && request.method === "POST" && url.pathname !== "/api/reset-demo") {
       return json({ error: "Persisted state is unreadable; refusing all changes (fail-closed). An operator must restore or remove the state file.", code: "state_corrupted" }, 409);

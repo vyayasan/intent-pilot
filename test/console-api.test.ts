@@ -83,6 +83,18 @@ describe("console api", () => {
     expect((await post("/api/create-card", { approval: ap.approval })).status).toBe(200);
   });
 
+  it("reports live=false by default and exposes live=true with reset refused on a live-backed console", async () => {
+    const { api } = setup();
+    const d = await (await api(new Request("http://localhost:3000/api/cases"))).json();
+    expect(d.live).toBe(false);
+    const audit2 = new AuditLog(undefined, () => NOW);
+    const live = createConsoleApi({ key: "k", approver: "sandi", now: () => NOW, audit: audit2, sessionToken: "tok", allowedOrigins: ["http://localhost:3000"], live: true });
+    const dl = await (await live(new Request("http://localhost:3000/api/cases"))).json();
+    expect(dl.live).toBe(true);
+    const rr = await live(new Request("http://localhost:3000/api/reset-demo", { method: "POST", headers: { "content-type": "application/json", "x-console-token": "tok", origin: "http://localhost:3000" }, body: "{}" }));
+    expect(rr.status).toBe(409);
+  });
+
   it("a rejection emits a recommendation_rejected notification and persists the rejection", async () => {
     const saved: string[] = [];
     const store = { kind: "mem", load: () => null, save: (state: unknown) => { saved.push(JSON.stringify(state)); } };
