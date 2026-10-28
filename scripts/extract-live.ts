@@ -11,19 +11,20 @@ import { appendFileSync, readFileSync } from "node:fs";
 // being written, so diagnostics (including a schema-rejected proposal) honor the same redaction as the input.
 const redactMode = (() => { const i = process.argv.indexOf("--redact"); return i >= 0 ? process.argv[i + 1] : undefined; })();
 const redactions: string[] = redactMode ? readFileSync(redactMode, "utf8").split("\n").map((x) => x.trim()).filter((x) => x.length >= 4) : [];
-const scrub = (v: unknown): unknown => {
+export const scrubWith = (reds: string[]) => <T>(v: T): T => {
   if (v == null) return v;
   let t = JSON.stringify(v);
-  for (const r of redactions) t = t.split(r).join("[REDACTED]");
-  try { return JSON.parse(t); } catch { return "[scrubbed]"; }
+  for (const r of reds) t = t.split(r).join("[REDACTED]");
+  try { return JSON.parse(t); } catch { return "[scrubbed]" as unknown as T; }
 };
+export const scrub = scrubWith(redactions);
 let usage: { input_tokens?: number; output_tokens?: number } | undefined;
 const model = (() => {
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) return new AnthropicModel({ apiKey: key, model: process.env.ANTHROPIC_MODEL || undefined, onUsage: (u) => { usage = { ...usage, ...u }; } });
   return modelFromEnv();
 })();
-if (!model) throw new Error("no model configured: set ANTHROPIC_API_KEY or EXTRACTION_BASE_URL+EXTRACTION_MODEL");
+
 // Edge cases, live-only: the demo set should show the gate working in both directions.
 // case_edge_injection: instruction-like wording inside untrusted terms - must be treated as data, never obeyed.
 // case_edge_garbage: contradictory pricing - the honest outcome is ESCALATE to a person.
@@ -51,15 +52,18 @@ const invoiceCase = (path: string): CaseState[] => [{
   forecast: { weeklyBalances: [3200, 3250, 3300, 3350, 3400, 3450, 3500, 3550, 3600, 3650, 3700, 3750], reserveFloor: 1000 },
   transactionIds: [], log: [],
 }];
+const out = process.env.EXTRACTION_RUN_OUT ?? (invoiceMode ? "runs/extraction-live-invoice.jsonl" : "runs/extraction-live-oss.jsonl");
+const positional = process.argv.slice(2).filter((a, i, arr) => !a.startsWith("--") && arr[i - 1] !== "--invoice" && arr[i - 1] !== "--redact");
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop() ?? "");
+if (isMain) {
+if (!model) throw new Error("no model configured: set ANTHROPIC_API_KEY or EXTRACTION_BASE_URL+EXTRACTION_MODEL");
 const seed = invoiceMode ? invoiceCase(invoiceMode) : process.argv.includes("--edge") ? [...demoCases(), ...edgeCases()] : demoCases();
-const api = createConsoleApi({ key: "extract-live", approver: "sandi", audit: new AuditLog(undefined), sessionToken: "tok", allowedOrigins: ["http://localhost:3000"], seedCases: seed, planner: (kase, forecast) => extractTerms(model, kase, forecast) });
+const api = createConsoleApi({ key: "extract-live", approver: "sandi", audit: new AuditLog(undefined), sessionToken: "tok", allowedOrigins: ["http://localhost:3000"], seedCases: seed, planner: (kase, forecast) => extractTerms(model!, kase, forecast) });
 const extract = async (caseId: string) => {
   const r = await api(new Request("http://localhost:3000/api/extract", { method: "POST", headers: { "content-type": "application/json", "x-console-token": "tok", origin: "http://localhost:3000" }, body: JSON.stringify({ caseId }) }));
   const d = await r.json().catch(() => ({}));
   return { status: r.status, ...d };
 };
-const out = process.env.EXTRACTION_RUN_OUT ?? (invoiceMode ? "runs/extraction-live-invoice.jsonl" : "runs/extraction-live-oss.jsonl");
-const positional = process.argv.slice(2).filter((a, i, arr) => !a.startsWith("--") && arr[i - 1] !== "--invoice" && arr[i - 1] !== "--redact");
 for (const caseId of (positional.length ? positional : invoiceMode ? ["case_workspace_invoice"] : ["case_acme", "case_flowdesk", "case_northwind", "case_pulsar"])) {
   usage = undefined;
   const started = Date.now();
@@ -70,10 +74,11 @@ for (const caseId of (positional.length ? positional : invoiceMode ? ["case_work
     caseId, ms: Date.now() - started, httpStatus: d.status,
     ok: d.plan?.ok ?? false, error: d.plan?.error ?? null, rejection: scrub(d.plan?.rejection) ?? null,
     usage: usage ?? null,
-    proposal: d.plan?.proposal ?? null, gate: d.plan?.gate ?? null,
-    adoptedTerms: d.case?.kase?.terms ?? null,
+    proposal: scrub(d.plan?.proposal) ?? null, gate: scrub(d.plan?.gate) ?? null,
+    adoptedTerms: scrub(d.case?.kase?.terms) ?? null,
   };
   appendFileSync(out, JSON.stringify(rec) + "\n");
   console.log(`${caseId}: ${rec.ok ? (rec.gate?.accepted ? `accepted (${rec.gate.finalCadence})` : `rejected (${(rec.gate?.reasons ?? []).join("; ")})`) : `error ${rec.error}`}`);
 }
 console.log(`wrote ${out}`);
+}
