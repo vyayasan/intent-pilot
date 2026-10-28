@@ -1,12 +1,14 @@
 node_modules
 dist
 .env
-audit.jsonl
-runs/
-console-state.json
+/runs/
 
 # Runtime state and secrets must never be committed (review round-5 hygiene):
 # bare epoch-ms files (legacy state-file leak), sqlite stores and journals, HMAC key files.
+# Runtime-state patterns are ROOT-ANCHORED: an unanchored console-state* also matched
+# test/console-state.test.ts and silently dropped 8 tests from clone/archive recovery.
+# (.env and key/db suffix patterns stay unanchored on purpose: secret shapes must be
+# ignored at any depth.)
 /[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]
 *.db
 *.sqlite
@@ -15,5 +17,6 @@ console-state.json
 *.db-wal
 *.db-shm
 *.hmac.key
-console-state*
-audit.jsonl
+/console-state.json
+/console-state.db
+/audit.jsonl
