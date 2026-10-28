@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync, chmodSync, mkdirSync, appendFileSync } fro
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet, type JWTPayload } from "jose";
 
 const ISSUER = "https://accounts.google.com";
-const REDIRECT_URI = "http://localhost:8787/callback";
+const REDIRECT_URI = "http://localhost:8787/auth/callback";
 const STATE_FILE = "runs/signin-exchange-state.json";
 const LOG = "runs/signin-exchange.jsonl";
 const b64url = (buf: Buffer | Uint8Array) => Buffer.from(buf).toString("base64url");
