@@ -1,6 +1,6 @@
 import { ROLE_RANK, type AuthProvider, type Identity, type Role } from "./auth.js";
 import { openStateStore, type StateStore } from "./state.js";
-import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { issue, approverKeyId, ApprovalVerifier, type Approval } from "../approval/approval.js";
 import { hashIntent, hashTerms, mintIntent } from "../intent/intent.js";
@@ -78,6 +78,16 @@ const FreezeBody = z.object({ caseId: z.string() });
 const ReconcileBody = z.object({ caseId: z.string(), manualConfirm: z.string().trim().min(8).max(500).optional() });
 const ChangeTermsBody = z.object({ caseId: z.string(), terms: ExtractedTermsSchema, rawTerms: z.string().trim().min(1).max(8000) });
 const ExtractBody = z.object({ caseId: z.string() });
+// Real case intake: the acceptance flow starts from actual vendor text, never seeded demo data.
+// weeklyBalances/reserveFloor come from an observed cash position recorded in sourceNote;
+// rawTerms is stored as inert text - it is never fetched, resolved, or dereferenced.
+const IntakeBody = z.object({
+  vendor: z.string().trim().min(1).max(120),
+  rawTerms: z.string().trim().min(1).max(8000),
+  weeklyBalances: z.array(z.number().finite().nonnegative()).length(12),
+  reserveFloor: z.number().finite().nonnegative(),
+  sourceNote: z.string().trim().min(1).max(200),
+});
 const PromoteBody = z.object({ id: z.string(), operatorToken: z.string() });
 
 export interface CaseView {
@@ -203,6 +213,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   let gateway = options.gateway ?? makeSim();
   let holderId: string | undefined;
   const audit = options.audit ?? new AuditLog();
+  // Seeds are used by REFERENCE: adversarial tests mutate the array they passed in to
+  // change the deal underneath an approval - cloning would hide that from the handler.
   let cases = options.seedCases ?? demoCases();
   // Email previews: the exact emails each workflow step WOULD send. No transport, nothing is sent.
   let outbox = new Outbox(now);
@@ -218,7 +230,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   let approverFp: string;
   // Durable state via the StateStore seam (json demo engine, sqlite production engine).
   const store = options.store ?? (options.stateFile ? openStateStore(options.stateFile, options.stateEngine) : undefined);
-  const loadedState = !options.seedCases && store ? store.load() : null;
+  // Persisted state always wins over any seed: a restart must never wipe intake cases or locks.
+  const loadedState = store ? store.load() : null;
   const savedApproverKey = loadedState && loadedState !== "corrupted" && typeof loadedState.approverKey?.privateKeyPem === "string" && loadedState.approverKey.privateKeyPem
     ? loadedState.approverKey.privateKeyPem : undefined;
   if (savedApproverKey) {
@@ -359,7 +372,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
     }
     if (url.pathname === "/api/reset-demo" && request.method === "POST") {
       if (options.live) { audit.append("refused", { reason: "demo reset is simulator-only on a live-backed console" }); return bad("demo reset is only available in the local simulator; on the live sandbox it would erase real evidence and unresolved locks", 409); }
-      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = demoCases(); outbox = new Outbox(now); persist(); audit.append("reset", {});
+      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = options.seedCases && options.seedCases.length === 0 ? [] : demoCases(); outbox = new Outbox(now); persist(); audit.append("reset", {});
       return json({ cases: cases.map(view) });
     }
     if (url.pathname === "/api/notifications/promote" && request.method === "POST") {
@@ -767,6 +780,23 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       c.log.push("Card freeze verified. New authorizations must decline.");
       audit.append("card_frozen", { cardId: c.card.id }, c.kase.id);
       return json({ card: c.card, case: await view(c) });
+    }
+    if (url.pathname === "/api/intake" && request.method === "POST") {
+      const parsed = IntakeBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid intake request: vendor, rawTerms, 12 weeklyBalances, reserveFloor and sourceNote are required", 400);
+      const slug = parsed.data.vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "vendor";
+      const id = `case_${slug}_${randomBytes(3).toString("hex")}`;
+      if (find(id)) return bad("case id collision; retry", 409);
+      const c: CaseState = {
+        kase: { id, vendor: parsed.data.vendor, rawTerms: parsed.data.rawTerms },
+        forecast: { weeklyBalances: parsed.data.weeklyBalances, reserveFloor: parsed.data.reserveFloor },
+        transactionIds: [],
+        log: [`Case created from external intake (${parsed.data.sourceNote}). Terms not extracted yet.`],
+      };
+      cases.push(c);
+      audit.append("case_intake", { vendor: parsed.data.vendor, sourceNote: parsed.data.sourceNote, reserveFloor: parsed.data.reserveFloor }, id);
+      persist();
+      return json({ case: await view(c) }, 201);
     }
     if (url.pathname === "/api/reject" && request.method === "POST") {
       const parsed = RejectBody.safeParse(await request.json().catch(() => null));
