@@ -763,9 +763,10 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       c.kase.terms = parsed.data.terms;
       c.kase.rawTerms = parsed.data.rawTerms;
       c.requiresReapproval = true;
-      c.log.push("Deal changed. Approval invalidated; fresh human approval required. Old intent retained only for decline proof.");
+      if (c.intent) c.log.push("Deal changed. Approval invalidated; fresh human approval required. Old intent retained only for decline proof.");
       audit.append("terms_changed", { oldHash, newHash, cardId: c.card?.id }, c.kase.id);
-      await dispatcher.deliver(outbox.emit(c.card ? "deal_changed_frozen" : "reapproval_required", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { freezeState: c.freezeState ?? "no card", newTerms: parsed.data.rawTerms.slice(0, 300) } }));
+      // Notify only when an approval actually existed to invalidate; a pre-approval terms edit invalidates nothing.
+      if (c.intent) await dispatcher.deliver(outbox.emit(c.card ? "deal_changed_frozen" : "reapproval_required", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { freezeState: c.freezeState ?? "no card", newTerms: parsed.data.rawTerms.slice(0, 300) } }));
       persist();
       return json({ case: await view(c) });
     }
