@@ -272,3 +272,26 @@ describe("round-4 N5/N3-residual regressions", () => {
     expect(String(body.error)).toMatch(/not authoritative|consistency/i);
   });
 });
+
+describe("reviewer round-5: reject gated on unresolved card issuance", () => {
+  it("reject is refused while createCardUnresolved stands; after verified none-created it succeeds with true no-card wording", async () => {
+    const { api, post, audit } = mk({
+      async createCard() { throw new Error("socket hangup after commit"); },
+      async listCards() { return []; },
+    });
+    const ap = await (await post("/api/approve", { caseId: "case_acme" })).json();
+    expect((await post("/api/create-card", { approval: ap.approval })).status).toBe(409);
+    // While issuance is unresolved a stray provider card may exist: reject must refuse,
+    // never emit a "no card was created" claim.
+    const r = await post("/api/reject", { caseId: "case_acme", reason: "not in budget" });
+    expect(r.status).toBe(409);
+    expect((await r.json()).error).toMatch(/issuance on this case is unresolved/);
+    expect(audit.list().some((e) => e.kind === "refused" && /issuance is unresolved/.test(String(e.detail.reason)))).toBe(true);
+    // After a verified none-created reconciliation the reject goes through, wording true.
+    expect((await post("/api/reconcile-card", { caseId: "case_acme", decision: "none-created", attestation: "verified empty at the provider" })).status).toBe(200);
+    expect((await post("/api/reject", { caseId: "case_acme", reason: "not in budget" })).status).toBe(200);
+    const list = await (await api(new Request("http://localhost:3000/api/cases"))).json();
+    const [n] = list.notifications.filter((x: { kind: string }) => x.kind === "recommendation_rejected");
+    expect(n.body).toContain("No card was created and no spend can happen");
+  });
+});

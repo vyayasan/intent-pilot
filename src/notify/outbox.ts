@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { DeliveryReceipt } from "./transport.js";
+import { renderNotificationHtml } from "./html.js";
 
 /**
  * Notification outbox: the exact emails IntentPay WOULD send at each workflow
@@ -29,6 +30,9 @@ export interface NotificationRecord {
   to: string;
   subject: string;
   body: string;
+  /** Designed HTML alternative (multipart/alternative). Plain text stays the canonical
+   *  wording and fallback for clients without HTML; both parts render from the same facts. */
+  html?: string;
   sha256: string;
   createdAt: string;
   /** "preview" while no transport is selected (nothing is sent). A transport moves a record to
@@ -49,12 +53,14 @@ export interface NotificationInput {
 const SUBJECTS: Record<NotificationKind, (i: NotificationInput) => string> = {
   approval_issued: (i) => `Intent approved: ${i.vendor} (${i.detail.cadence}, cap ${i.detail.cap} ${i.detail.currency})`,
   card_created: (i) => `Card issued inside approved intent: ${i.vendor}`,
-  deal_changed_frozen: (i) => `Deal changed: ${i.vendor} card frozen, approval invalidated`,
+  deal_changed_frozen: (i) => i.detail.cardState === "closed"
+    ? `Deal changed: ${i.vendor} card permanently closed, approval invalidated`
+    : `Deal changed: ${i.vendor} card frozen, approval invalidated`,
   reapproval_required: (i) => `Re-approval needed: ${i.vendor} terms changed`,
   purchase_cleared: (i) => `Purchase cleared inside intent: ${i.detail.amount} ${i.detail.currency} at ${i.vendor}`,
-  purchase_declined: (i) => `Purchase declined by intent controls: ${i.detail.amount} ${i.detail.currency} at ${i.vendor}`,
+  purchase_declined: (i) => `Purchase declined: ${i.detail.amount} ${i.detail.currency} at ${i.vendor}`,
   gateway_outage: (i) => `Action needed: payment gateway outcome unknown for ${i.vendor}`,
-  recommendation_rejected: (i) => `Case rejected: ${i.vendor} - no card was created`
+  recommendation_rejected: (i) => i.detail.cardState === "closed" ? `Case rejected: ${i.vendor}` : `Case rejected: ${i.vendor} - no card was created`
 };
 
 const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
@@ -66,22 +72,27 @@ const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
     `A card was issued for ${i.vendor} inside the approved intent.\n` +
     `Controls mirror the approval: limit ${i.detail.limit} per transaction, currencies ${i.detail.currencies}, categories ${i.detail.categories}.`,
   deal_changed_frozen: (i) =>
-    `The ${i.vendor} terms changed. The old approval no longer matches the deal, so the card was frozen and the approval invalidated.\n` +
-    `Freeze read-back: ${i.detail.freezeState}. No new card can be created until a person approves the new deal.`,
+    i.detail.cardState === "closed"
+      ? `The ${i.vendor} terms changed. The old approval no longer matches the deal and is invalidated.\n` +
+        `The old card is permanently closed - it can never transact again. No new card can be created until a person approves the new deal.`
+      : `The ${i.vendor} terms changed. The old approval no longer matches the deal, so the card was frozen and the approval invalidated.\n` +
+        `Freeze read-back: ${i.detail.freezeState}. No new card can be created until a person approves the new deal.`,
   reapproval_required: (i) =>
     `The ${i.vendor} deal changed and needs a human re-approval before any new spend.\n` +
-    `New terms: ${i.detail.newTerms}. The old card stays frozen meanwhile.`,
+    `New terms: ${i.detail.newTerms}. No card exists on this case; no card can be created until a person approves the new deal.`,
   purchase_cleared: (i) =>
     `${i.detail.amount} ${i.detail.currency} at ${i.vendor} cleared inside the approved intent (cap ${i.detail.cap} ${i.detail.currency}).`,
   purchase_declined: (i) =>
-    `${i.detail.amount} ${i.detail.currency} at ${i.vendor} was declined by the card's intent controls (${i.detail.reason}).`,
+    `The issuing gateway declined the ${i.detail.amount} ${i.detail.currency} purchase at ${i.vendor}: ${i.detail.reason}.`,
   gateway_outage: (i) =>
     `An authorization for ${i.vendor} could not be confirmed (${i.detail.error}).\n` +
     `The outcome is unknown. Reconcile the card's transactions before retrying to avoid a duplicate.`,
   recommendation_rejected: (i) =>
     `The ${i.vendor} purchase intent was rejected through the authenticated approver session ${i.detail.approver}.\n` +
     `Reason: ${i.detail.reason}.\n` +
-    `No card was created and no spend can happen on this case.`
+    (i.detail.cardState === "closed"
+      ? `The card that was created on this case is permanently closed - it can never transact again. Any new spend would need a fresh approval.`
+      : `No card was created and no spend can happen on this case.`)
 };
 
 export class Outbox {
@@ -92,12 +103,13 @@ export class Outbox {
   emit(kind: NotificationKind, input: NotificationInput): NotificationRecord {
     const subject = SUBJECTS[kind](input);
     const body = BODIES[kind](input);
+    const html = renderNotificationHtml(kind, input);
     const sha256 = createHash("sha256").update(JSON.stringify({ kind, subject, body, caseId: input.caseId })).digest("hex");
     const record: NotificationRecord = {
       // Content hash + unique suffix: two identical REAL events must NOT collapse onto one id
       // (review: notification identity collision). sha256 stays the content-integrity field.
       id: `ntf_${sha256.slice(0, 12)}_${(Outbox.seq++).toString(36)}_${randomBytes(3).toString("hex")}`,
-      kind, caseId: input.caseId, to: input.recipient, subject, body, sha256,
+      kind, caseId: input.caseId, to: input.recipient, subject, body, html, sha256,
       createdAt: this.now().toISOString(), status: "preview"
     };
     this.records.push(record);

@@ -289,6 +289,53 @@ describe("authorization outcome handling", () => {
     expect(audit.list().some((e) => e.kind === "reconciliation_matched" && e.detail.basis === "transaction_id")).toBe(true);
   });
 
+  it("reviewer round-5: a PENDING capture is NOT cleared - no cleared audit or email, the lock stands", async () => {
+    const pending = { cardId: "card-1", amount: 100, currency: "USD", merchant: "Acme Analytics", transactedAt: NOW.toISOString() };
+    const { api, audit } = mk({
+      async authorize() { return { id: "txn_p", ...pending, status: "PENDING" }; },
+      async capture(t: string) { return { id: t, ...pending, status: "PENDING" }; },
+      // no getTransaction: the status lookup is unavailable
+    });
+    const r = await drive(api);
+    expect(r.status).toBe(409);
+    const d = await r.json();
+    expect(d.code).toBe("capture_unconfirmed");
+    expect(d.transactionId).toBe("txn_p");
+    expect(d.error).toMatch(/neither cleared nor declined/);
+    expect(audit.list().some((e) => e.kind === "capture_unconfirmed")).toBe(true);
+    expect(audit.list().some((e) => e.kind === "authorization_cleared")).toBe(false);
+    // The authorization lock stands: a blind retry is still refused.
+    const r2 = await api(new Request("http://localhost:3000/api/simulate", { method: "POST", headers: { "content-type": "application/json", "x-console-token": "tok", origin: "http://localhost:3000" }, body: JSON.stringify({ caseId: "case_acme", kind: "in-policy" }) }));
+    expect(r2.status).toBe(409);
+    expect((await r2.json()).code).toBe("authorization_unresolved");
+  });
+
+  it("reviewer round-5: PENDING capture + confirmed-CLEARING lookup still clears honestly", async () => {
+    const pending = { cardId: "card-1", amount: 100, currency: "USD", merchant: "Acme Analytics", transactedAt: NOW.toISOString() };
+    const { api, audit } = mk({
+      async authorize() { return { id: "txn_p2", ...pending, status: "PENDING" }; },
+      async capture(t: string) { return { id: t, ...pending, status: "PENDING" }; },
+      async getTransaction(id: string) { return { id, ...pending, status: "CLEARING" }; },
+    });
+    const r = await drive(api);
+    expect(r.status).toBe(200);
+    expect((await r.json()).transaction.status).toBe("CLEARING");
+    expect(audit.list().some((e) => e.kind === "authorization_cleared")).toBe(true);
+  });
+
+  it("reviewer round-5: a FAILED capture payload is a definitive decline, never a clearing", async () => {
+    const base = { cardId: "card-1", amount: 100, currency: "USD", merchant: "Acme Analytics", transactedAt: NOW.toISOString() };
+    const { api, audit } = mk({
+      async authorize() { return { id: "txn_f", ...base, status: "PENDING" }; },
+      async capture(t: string) { return { id: t, ...base, status: "FAILED", failureReason: "above_approved_cap" }; },
+    });
+    const r = await drive(api);
+    expect(r.status).toBe(200);
+    expect((await r.json()).transaction.status).toBe("FAILED");
+    expect(audit.list().some((e) => e.kind === "authorization_declined" && e.detail.reason === "above_approved_cap")).toBe(true);
+    expect(audit.list().some((e) => e.kind === "authorization_cleared")).toBe(false);
+  });
+
   it("a documented decline payload is the only definitive rejection: no funds authorized, no absolute ledger claim", async () => {
     const { api, audit } = mk({
       async authorize() { return { id: "txn_dec", cardId: "card-1", amount: 101, currency: "USD", merchant: "Acme Analytics", status: "FAILED", failureReason: "above_approved_cap" }; },

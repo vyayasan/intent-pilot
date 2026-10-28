@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Agent } from "undici";
 import type { NotificationRecord } from "./outbox.js";
 import { AmbiguousMailFailure, DefiniteMailFailure, validateRecord, type EmailTransport } from "./transport.js";
@@ -33,14 +34,24 @@ const encodeSubject = (s: string) =>
   /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
 
 export function renderMime(record: NotificationRecord): string {
-  const headers = [
-    `To: ${record.to}`,
-    `Subject: ${encodeSubject(record.subject)}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    `Content-Transfer-Encoding: base64`,
-    `MIME-Version: 1.0`,
-  ];
-  return headers.join("\r\n") + "\r\n\r\n" + Buffer.from(record.body, "utf8").toString("base64");
+  const base = [`To: ${record.to}`, `Subject: ${encodeSubject(record.subject)}`, `MIME-Version: 1.0`];
+  if (!record.html) {
+    const headers = [...base, `Content-Type: text/plain; charset="UTF-8"`, `Content-Transfer-Encoding: base64`];
+    return headers.join("\r\n") + "\r\n\r\n" + Buffer.from(record.body, "utf8").toString("base64");
+  }
+  // multipart/alternative: plain text first (canonical wording + fallback), HTML second.
+  // Boundary derives from the record id so the render stays deterministic per record.
+  const boundary = `ip_${createHash("sha256").update(record.id).digest("hex").slice(0, 24)}`;
+  const part = (type: string, text: string) =>
+    [`--${boundary}`, `Content-Type: ${type}; charset="UTF-8"`, `Content-Transfer-Encoding: base64`, "", Buffer.from(text, "utf8").toString("base64")].join("\r\n");
+  return (
+    [...base, `Content-Type: multipart/alternative; boundary="${boundary}"`].join("\r\n") +
+    "\r\n\r\n" +
+    part("text/plain", record.body) +
+    "\r\n" +
+    part("text/html", record.html) +
+    `\r\n--${boundary}--`
+  );
 }
 
 export interface GmailTransportOptions {

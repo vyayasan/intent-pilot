@@ -418,7 +418,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       c.requiresReapproval = false;
       c.log.push(`Intent approved by ${approverLabel} (${identity ? "authenticated console sign-in" : `local demo approver key ${approverFp}`}): ${c.intent.cadence}, cap ${c.intent.amountCap} ${c.intent.currency}.`);
       audit.append("approval_issued", { cadence: c.intent.cadence, amountCap: c.intent.amountCap, currency: c.intent.currency, termsHash: c.intent.termsHash, nonce: approval.nonce, approverKeyId: approverFp, approver: approverLabel }, c.kase.id);
-      await dispatcher.deliver(outbox.emit("approval_issued", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: approverLabel, cadence: c.intent.cadence, cap: c.intent.amountCap, currency: c.intent.currency, categories: c.intent.categories.join(", "), termsHash: c.intent.termsHash } }));
+      await dispatcher.deliver(outbox.emit("approval_issued", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: approverLabel, cadence: c.intent.cadence, cap: c.intent.amountCap, currency: c.intent.currency, categories: c.intent.categories.join(", "), termsHash: c.intent.termsHash, cardState: !c.card ? "none" : c.card.status === "CLOSED" ? "closed" : "frozen" } }));
       persist();
       return json({ approval, case: await view(c) });
     }
@@ -637,12 +637,38 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
           return json({ error: "The authorization exists but its capture could not be confirmed. Reconcile before retrying.", code: "capture_outcome_unknown", transactionId: t.id, requestId }, 502);
         }
         // The capture response is the cleared truth; the list lookup is only a fallback.
-        transaction = cleared.status === "PENDING" ? ((await tryGet(t.id)) ?? cleared) : cleared;
-        c.pendingAuthorization = undefined;
-        c.log.push(`Authorization ${t.id} cleared: ${t.amount} ${t.currency} at ${t.merchant}.`);
-        audit.append("authorization_cleared", { transactionId: t.id, amount: t.amount, currency: t.currency }, c.kase.id);
-        await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap } }));
-        persist();
+        // Round-5 fix: "cleared" requires a CONFIRMED CLEARING state. A capture that answers
+        // PENDING, or a PENDING capture plus a failed/absent lookup, is NEITHER cleared NOR
+        // declined - it stays locked and unresolved, and no purchase_cleared email may fire.
+        const lookedUp = cleared.status === "PENDING" ? await tryGet(t.id) : undefined;
+        const final = lookedUp ?? cleared;
+        transaction = final;
+        if (final.status === "CLEARING") {
+          c.pendingAuthorization = undefined;
+          c.log.push(`Authorization ${t.id} cleared: ${t.amount} ${t.currency} at ${t.merchant}.`);
+          audit.append("authorization_cleared", { transactionId: t.id, amount: t.amount, currency: t.currency }, c.kase.id);
+          await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap } }));
+          persist();
+        } else if (final.status === "FAILED") {
+          // A documented failure payload at capture is a definitive decline.
+          c.pendingAuthorization = undefined;
+          c.log.push(`Authorization declined by the issuing gateway (${final.failureReason ?? "declined"}); the card enforced the approved intent.`);
+          audit.append("authorization_declined", { transactionId: t.id, reason: final.failureReason, amount: t.amount }, c.kase.id);
+          await dispatcher.deliver(outbox.emit("purchase_declined", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, reason: final.failureReason ?? "declined" } }));
+          persist();
+        } else {
+          // PENDING (or an unexpected status, or the lookup failed): outcome unconfirmed.
+          // Keep the authorization lock; the reconcile flow owns resolution. No email kind
+          // exists for this state on purpose - a "pending" email would be a new claim surface.
+          const why = lookedUp === undefined && cleared.status === "PENDING"
+            ? "the capture stayed PENDING and the status lookup failed"
+            : `status is ${final.status}`;
+          attempt.lastError = `capture unconfirmed: ${why}`;
+          c.log.push(`Authorization ${t.id} is not final: ${why}. Neither cleared nor declined - reconcile the card's transactions before concluding anything.`);
+          audit.append("capture_unconfirmed", { requestId, transactionId: t.id, status: final.status, lookupFailed: lookedUp === undefined && cleared.status === "PENDING" }, c.kase.id);
+          persist();
+          return json({ error: `The authorization is not final - ${why}. It is neither cleared nor declined; reconcile the card's transactions before retrying.`, code: "capture_unconfirmed", transactionId: t.id, requestId }, 409);
+        }
       } else {
         // A decline payload in a successful response is the ONLY definitive rejection: the gateway
         // recorded and refused the authorization. No funds were authorized.
@@ -772,7 +798,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (c.intent) c.log.push("Deal changed. Approval invalidated; fresh human approval required. Old intent retained only for decline proof.");
       audit.append("terms_changed", { oldHash, newHash, cardId: c.card?.id }, c.kase.id);
       // Notify only when an approval actually existed to invalidate; a pre-approval terms edit invalidates nothing.
-      if (c.intent) await dispatcher.deliver(outbox.emit(c.card ? "deal_changed_frozen" : "reapproval_required", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { freezeState: c.freezeState ?? "no card", newTerms: parsed.data.rawTerms.slice(0, 300) } }));
+      if (c.intent) await dispatcher.deliver(outbox.emit(c.card ? "deal_changed_frozen" : "reapproval_required", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { freezeState: c.freezeState ?? "no card", newTerms: parsed.data.rawTerms.slice(0, 300), cardState: !c.card ? "none" : c.card.status === "CLOSED" ? "closed" : "frozen" } }));
       persist();
       return json({ case: await view(c) });
     }
@@ -843,12 +869,17 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (!parsed.success) return bad("invalid reject request", 400);
       const c = find(parsed.data.caseId);
       if (!c) return bad("case not found", 404);
+      // Reject claims "no card was created and no spend can happen". That is only TRUE when no
+      // live card remains: a non-closed card could still authorize against the old approval, so
+      // it must be closed first (the frozen state alone is provider-reversible).
+      if (c.createCardUnresolved) { audit.append("refused", { reason: "rejection refused while card issuance is unresolved - a stray provider card may exist" }, c.kase.id); return bad("card issuance on this case is unresolved - a stray provider card may exist. Reconcile it first (POST /api/reconcile-card); rejecting now could assert 'no card' while a live card transacts", 409); }
+      if (c.card && c.card.status !== "CLOSED") { audit.append("refused", { reason: "rejection refused while a live card exists - close it first", cardId: c.card.id }, c.kase.id); return bad("a live card exists on this case; close it before rejecting, otherwise spend could still happen", 409); }
       // Approver of record follows the same rule as approvals: the authenticated identity, never a client string.
       const rejectorLabel = identity ? (identity.email ?? identity.sub) : approver;
       c.rejected = parsed.data.reason;
-      c.log.push(`Reviewer rejected the case: ${parsed.data.reason}. No card was created.`);
+      c.log.push(`Reviewer rejected the case: ${parsed.data.reason}. ${c.card ? "The card on this case is permanently closed - it can never transact again." : "No card was created."}`);
       audit.append("recommendation_rejected", { reason: parsed.data.reason, approver: rejectorLabel }, c.kase.id);
-      await dispatcher.deliver(outbox.emit("recommendation_rejected", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: rejectorLabel, reason: parsed.data.reason } }));
+      await dispatcher.deliver(outbox.emit("recommendation_rejected", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: rejectorLabel, reason: parsed.data.reason, cardState: !c.card ? "none" : "closed" } }));
       persist();
       return json({ case: await view(c) });
     }
