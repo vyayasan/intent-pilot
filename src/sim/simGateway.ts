@@ -13,6 +13,7 @@ export const DECLINE = {
   CURRENCY: "currency_not_allowed",
   CATEGORY: "category_not_allowed",
   FROZEN: "card_frozen",
+  CLOSED: "card_closed",
   FUNDS: "insufficient_funds",
 } as const;
 
@@ -33,6 +34,9 @@ export interface IssuingGateway {
   createCard(req: { cardholderId: string; controls: { amountLimit: number; currencyAllowlist: string[]; merchantCategories: string[] } }, requestId?: string): Maybe<Card>;
   freezeCard(cardId: string, requestId?: string): Maybe<Card>;
   unfreezeCard(cardId: string, requestId?: string): Maybe<Card>;
+  /** Permanently close a card (documented provider path: update card_status=CLOSED). Terminal -
+   *  a closed card can never transact again and cannot be reopened. */
+  closeCard(cardId: string, requestId?: string): Maybe<Card>;
   authorize(cardId: string, auth: AuthorizationRequest, requestId?: string): Maybe<CardTransaction>;
   capture(transactionId: string, requestId?: string): Maybe<CardTransaction>;
   reverse(transactionId: string, requestId?: string): Maybe<CardTransaction>;
@@ -133,11 +137,18 @@ export function makeSim(opts: { walletBalance?: number } = {}): SimGateway & { w
       c.status = "ACTIVE";
       return c;
     }),
+    closeCard: (cardId, requestId) => idem(requestId, () => {
+      const c = cards.get(cardId);
+      if (!c) throw new Error("card not found");
+      c.status = "CLOSED";
+      return c;
+    }),
     authorize: (cardId, auth, requestId) => idem(requestId, () => {
       const c = cards.get(cardId);
       if (!c) throw new Error("card not found");
       let t: CardTransaction;
-      if (c.status === "FROZEN") t = fail(cardId, auth, DECLINE.FROZEN);
+      if (c.status === "CLOSED") t = fail(cardId, auth, DECLINE.CLOSED);
+      else if (c.status === "FROZEN") t = fail(cardId, auth, DECLINE.FROZEN);
       else if (!Number.isFinite(auth.amount) || auth.amount <= 0) t = fail(cardId, auth, DECLINE.ABOVE_CAP);
       else if (!withinLimit(auth.amount, c.controls.amountLimit)) t = fail(cardId, auth, DECLINE.ABOVE_CAP);
       else if (!c.controls.currencyAllowlist.includes(auth.currency)) t = fail(cardId, auth, DECLINE.CURRENCY);

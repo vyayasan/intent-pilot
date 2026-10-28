@@ -77,6 +77,7 @@ const ReconcileCardBody = z.object({ caseId: z.string(), decision: z.enum(["chec
 const SimulateBody = z.object({ caseId: z.string(), kind: z.enum(["in-policy", "over-cap", "wrong-currency", "wrong-category"]) });
 const RejectBody = z.object({ caseId: z.string(), reason: z.string().trim().min(1).max(1024) }); // a rejection must say why
 const FreezeBody = z.object({ caseId: z.string() });
+const CloseCardBody = z.object({ caseId: z.string() });
 const ReconcileBody = z.object({ caseId: z.string(), manualConfirm: z.string().trim().min(8).max(500).optional() });
 const ChangeTermsBody = z.object({ caseId: z.string(), terms: ExtractedTermsSchema, rawTerms: z.string().trim().min(1).max(8000) });
 const ExtractBody = z.object({ caseId: z.string() });
@@ -789,6 +790,29 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       }
       c.log.push("Card freeze verified. New authorizations must decline.");
       audit.append("card_frozen", { cardId: c.card.id }, c.kase.id);
+      persist();
+      return json({ card: c.card, case: await view(c) });
+    }
+    if (url.pathname === "/api/close-card" && request.method === "POST") {
+      const parsed = CloseCardBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid close request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c?.card) return bad("create the card first", 409);
+      if (c.pendingAuthorization) { audit.append("refused", { reason: "card close refused while an authorization outcome is unresolved", requestId: c.pendingAuthorization.requestId }, c.kase.id); return bad("an authorization outcome is unresolved; reconcile it before closing the card", 409); }
+      // Permanent closure is terminal and cannot be undone: require a verified freeze first, so the
+      // ladder is ACTIVE -> FROZEN -> CLOSED and no single request closes a transacting card.
+      if (c.card.status !== "FROZEN") return bad("freeze the card before closing it permanently", 409);
+      try {
+        const closed = await gateway.closeCard(c.card.id, `${c.card.id}:manual-close`);
+        if (closed.status !== "CLOSED") throw new Error("close not confirmed");
+        c.card = { ...c.card, status: "CLOSED" };
+      } catch {
+        audit.append("outcome_unknown", { cardId: c.card.id, reason: "card close not confirmed" }, c.kase.id);
+        return bad("close outcome unknown; reconcile before continuing", 409);
+      }
+      c.log.push("Card permanently closed at the provider. It can never transact again.");
+      audit.append("card_closed", { cardId: c.card.id }, c.kase.id);
+      persist();
       return json({ card: c.card, case: await view(c) });
     }
     if (url.pathname === "/api/intake" && request.method === "POST") {

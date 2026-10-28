@@ -44,6 +44,7 @@ export class DropCreateResponseGateway implements IssuingGateway {
   createCardholder(...args: Parameters<IssuingGateway["createCardholder"]>) { return this.inner.createCardholder(...args); }
   freezeCard(...args: Parameters<IssuingGateway["freezeCard"]>) { return this.inner.freezeCard(...args); }
   unfreezeCard(...args: Parameters<IssuingGateway["unfreezeCard"]>) { return this.inner.unfreezeCard(...args); }
+  closeCard(...args: Parameters<IssuingGateway["closeCard"]>) { return this.inner.closeCard(...args); }
   authorize(...args: Parameters<IssuingGateway["authorize"]>) { return this.inner.authorize(...args); }
   capture(...args: Parameters<IssuingGateway["capture"]>) { return this.inner.capture(...args); }
   reverse(...args: Parameters<IssuingGateway["reverse"]>) { return this.inner.reverse(...args); }

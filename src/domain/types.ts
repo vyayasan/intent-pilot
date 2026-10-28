@@ -68,7 +68,7 @@ export interface PurchaseCase {
   intent?: PurchaseIntent;
 }
 
-export type CardStatus = "ACTIVE" | "FROZEN";
+export type CardStatus = "ACTIVE" | "FROZEN" | "CLOSED";
 
 export interface Cardholder { id: string; name: string; email: string }
 

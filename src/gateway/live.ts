@@ -106,7 +106,7 @@ export class LiveIssuingGateway implements IssuingGateway {
         id: x.card_id ?? x.id,
         cardholderId: x.cardholder_id ?? cardholderId,
         controls: { amountLimit: 0, currencyAllowlist: [], merchantCategories: [] },
-        status: x.card_status === "ACTIVE" ? "ACTIVE" : "FROZEN", // unknown status -> conservative
+        status: x.card_status === "ACTIVE" ? "ACTIVE" : x.card_status === "CLOSED" ? "CLOSED" : "FROZEN", // unknown status -> conservative
       });
       if (!j.has_more && items.length < 100) return out;
     }
@@ -164,6 +164,15 @@ export class LiveIssuingGateway implements IssuingGateway {
     const j = await this.client.call<any>("GET", `/api/v1/issuing/cards/${encodeURIComponent(cardId)}`);
     if (j.card_status !== "INACTIVE" || (j.card_id ?? j.id) !== cardId) throw new Error("freeze read-back not confirmed");
     return { id: j.card_id ?? j.id ?? cardId, cardholderId: j.cardholder_id ?? "", controls: { amountLimit: 0, currencyAllowlist: [], merchantCategories: [] }, status: "FROZEN" };
+  }
+
+  async closeCard(cardId: string, requestId?: string): Promise<Card> {
+    // Documented provider path (10-06 live finding): the update endpoint takes card_status=CLOSED.
+    // Permanent and terminal, so verify by independent read-back with the same discipline as freeze.
+    await this.client.updateCard(cardId, { card_status: "CLOSED" }, requestId);
+    const j = await this.client.call<any>("GET", `/api/v1/issuing/cards/${encodeURIComponent(cardId)}`);
+    if (j.card_status !== "CLOSED" || (j.card_id ?? j.id) !== cardId) throw new Error("close read-back not confirmed");
+    return { id: j.card_id ?? j.id ?? cardId, cardholderId: j.cardholder_id ?? "", controls: { amountLimit: 0, currencyAllowlist: [], merchantCategories: [] }, status: "CLOSED" };
   }
 
   async unfreezeCard(cardId: string, requestId?: string): Promise<Card> {
