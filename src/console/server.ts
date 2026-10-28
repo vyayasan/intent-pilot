@@ -9,6 +9,7 @@ import { OidcProvider } from "./auth.js";
 import { DryRunTransport, HttpMailTransport } from "../notify/transport.js";
 import { GmailApiTransport } from "../notify/gmailTransport.js";
 import { page, pageCss, pageJs } from "./page.js";
+import { DropCreateResponseGateway } from "../gateway/drop-create.js";
 import { AuditLog } from "../audit/audit.js";
 import { AirwallexClient } from "../gateway/airwallex.js";
 import { LiveIssuingGateway } from "../gateway/live.js";
@@ -87,10 +88,19 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
   const rateLimitPerMin = Math.max(1, Number(env.INTENTPAY_RATE_LIMIT_PER_MIN ?? 120));
 
   // Set AIRWALLEX_CLIENT_ID and AIRWALLEX_API_KEY to run against the Airwallex sandbox; otherwise the in-memory simulator is used.
-  const makeGateway = () =>
-    env.AIRWALLEX_CLIENT_ID && env.AIRWALLEX_API_KEY
+  const makeGateway = () => {
+    const g = env.AIRWALLEX_CLIENT_ID && env.AIRWALLEX_API_KEY
       ? new LiveIssuingGateway(new AirwallexClient({ clientId: env.AIRWALLEX_CLIENT_ID, apiKey: env.AIRWALLEX_API_KEY }))
       : undefined;
+    // Case-7 drill seam (non-production only): wrap the LIVE gateway so exactly one createCard
+    // response is discarded after the real vendor commit. The request, origin and credentials are
+    // untouched; this instruments the response path, never bypasses a guard.
+    if (g && env.INTENTPAY_DROP_CREATE_RESPONSE === "1") {
+      if (production) throw new Error("INTENTPAY_DROP_CREATE_RESPONSE is a non-production drill seam; refusing to arm it in production");
+      return new DropCreateResponseGateway(g);
+    }
+    return g;
+  };
   const live = makeGateway();
   // A model (ANTHROPIC_API_KEY, or EXTRACTION_BASE_URL+EXTRACTION_MODEL for any OpenAI-compatible endpoint) turns on the model extractor. Without one /api/extract answers 501 and terms stay human-entered.
   const model = modelFromEnv(env);
