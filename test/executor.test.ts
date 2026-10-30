@@ -70,13 +70,35 @@ describe("execution agent (/api/agent-run)", () => {
     expect(r.status).toBe(501);
   });
 
-  it("recovers in-loop when the model calls execute_purchase before issue_card (real operation refuses)", async () => {
-    const { call, approve } = setup(modelFromScript(["execute_purchase", "issue_card", "execute_purchase", "finish"]));
+  it("recovers in-loop when the model calls execute_purchase before issue_card (pre-gateway refusal preserves the shot)", async () => {
+    const { call, approve, audit } = setup(modelFromScript(["execute_purchase", "issue_card", "execute_purchase", "finish"]));
     const approval = await approve();
     const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
-    expect(d.run.steps[0]).toContain("execute_purchase -> 409"); // create the card first
+    expect(d.run.steps[0]).toContain("pre-gateway refusal, shot preserved"); // create the card first
+    expect(d.run.steps.join(",")).toContain("execute_purchase -> 200"); // the retry really ran
     expect(d.run.ok).toBe(true);
-    expect(d.case.card.status).toBe("ACTIVE");
+    const kinds = audit.list().map((e: any) => e.kind ?? e.type);
+    expect(kinds.filter((k: string) => k === "authorization_attempt").length).toBe(1); // exactly ONE gateway authorize
+    expect(kinds).toContain("authorization_cleared"); // and it actually cleared in the ledger
+    expect(d.case.log.join(" ")).toMatch(/cleared/i);
+  });
+
+  it("attempted is never complete: a refused purchase followed by finish reports ok=false", async () => {
+    const { call, approve } = setup(modelFromScript(["execute_purchase", "finish"]));
+    const approval = await approve();
+    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
+    expect(d.run.ok).toBe(false); // no card existed; nothing reached the gateway; not complete
+    expect(d.case.card).toBeFalsy();
+  });
+
+  it("strict one-shot after the gateway is reached: a second execute_purchase after a clearing is refused", async () => {
+    const { call, approve, audit } = setup(modelFromScript(["issue_card", "execute_purchase", "execute_purchase", "finish"]));
+    const approval = await approve();
+    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
+    expect(d.run.ok).toBe(true);
+    expect(d.run.steps.join(",")).toContain("execute_purchase refused - already fired this run");
+    const kinds = audit.list().map((e: any) => e.kind ?? e.type);
+    expect(kinds.filter((k: string) => k === "authorization_cleared").length).toBe(1); // never a duplicate purchase
   });
 
   it("one-shot bound: a second issue_card call is refused in code even if the model asks", async () => {

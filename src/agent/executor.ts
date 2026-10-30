@@ -59,6 +59,9 @@ export async function runAgent(
   const steps: string[] = [];
   const used = new Set<string>();
   let needsReconcile = false;
+  // Decisive-operation completion: true ONLY on a successful response carrying the final
+  // transaction. Attempted is never complete (review I1/v3).
+  let purchaseCompleted = false;
 
   const messages: Message[] = [{ role: "user", content: `Case ${caseId} is approved. Carry the approved intent to completion now.` }];
   const maxSteps = opts.maxSteps ?? MAX_STEPS;
@@ -66,8 +69,10 @@ export async function runAgent(
   // Serial by construction: one tool per reply, awaited before the next model call - no
   // concurrent mutations exist inside a run, so terms cannot change beneath an in-flight tool.
   const callTool = async (name: string): Promise<{ content: string; isError?: boolean }> => {
-    if ((name === "issue_card" || name === "execute_purchase") && used.has(name))
+    if ((name === "issue_card" || name === "execute_purchase") && used.has(name)) {
+      steps.push(`${name} refused - already fired this run`); // refusals are provenance too
       return { isError: true, content: `${name} already fired this run. One shot only - do not retry; finish instead.` };
+    }
     if (name === "read_state") {
       const r = await callApi("/api/cases?view=one&caseId=" + encodeURIComponent(caseId), undefined).catch((e) => ({ status: 0, body: { error: String(e) } }));
       // GET via the same handler; fall back to the full list when the single-case view is not routed.
@@ -89,16 +94,26 @@ export async function runAgent(
       return { isError: r.status !== 200, content: JSON.stringify(r.body).slice(0, 4000) };
     }
     if (name === "execute_purchase") {
-      used.add(name);
       const r = await callApi("/api/simulate", { caseId, kind: "in-policy" });
-      steps.push(`execute_purchase -> ${r.status}`);
-      // Sequencing refusals ("create the card first") are recoverable in-loop: the model issues
-      // the card next. Every other failure latches needsReconcile - fail safe: an unrecognized
-      // error stops the run and asks a person, exactly like a known unknown outcome.
-      if (r.status !== 200 || r.body?.error) {
-        if (!/create the card first/i.test(JSON.stringify(r.body))) needsReconcile = true;
+      const body = JSON.stringify(r.body);
+      // A pre-gateway refusal ("create the card first") never reached the provider: the shot is
+      // NOT consumed - the model may correct the sequence. Anything past this point reached the
+      // gateway or left its outcome unknown: strict one-shot from here, no retry ever.
+      if (r.status === 409 && /create the card first/i.test(body)) {
+        steps.push(`execute_purchase -> 409 (pre-gateway refusal, shot preserved)`);
+        return { isError: true, content: body.slice(0, 4000) };
       }
-      return { isError: r.status !== 200, content: JSON.stringify(r.body).slice(0, 4000) };
+      used.add(name);
+      steps.push(`execute_purchase -> ${r.status}`);
+      // Completion is DECISIVE only: the route's 200 carries the final transaction (cleared OR
+      // documented decline - both completed outcomes). Everything else (4xx/5xx error codes,
+      // unconfirmed capture) is an unknown or locked outcome: stop, never call this complete.
+      if (r.status === 200 && r.body && r.body.transaction) {
+        purchaseCompleted = true;
+        return { content: body.slice(0, 4000) };
+      }
+      needsReconcile = true;
+      return { isError: true, content: body.slice(0, 4000) };
     }
     return { isError: true, content: `unknown tool ${name}` };
   };
@@ -121,9 +136,9 @@ export async function runAgent(
       const parsed = z.object({ summary: z.string().max(600) }).safeParse(u.input);
       const summary = parsed.success ? parsed.data.summary : "run finished";
       steps.push("finish");
-      // ok means COMPLETED, not attempted: an ambiguous money outcome (needsReconcile) is never
-      // "complete" - a person must reconcile first, and the toast/audit must not claim otherwise.
-      return { ok: used.has("execute_purchase") && !needsReconcile, steps, summary, needsReconcile };
+      // ok means a DECISIVE completed operation, never an attempt: an ambiguous money outcome
+      // (needsReconcile) or a run that never reached a final transaction is not "complete".
+      return { ok: purchaseCompleted && !needsReconcile, steps, summary, needsReconcile };
     }
     if (!EXEC_TOOLS.some((t) => t.name === u.name)) {
       messages.push({ role: "assistant", content: blocks }, { role: "user", content: [{ type: "tool_result", tool_use_id: u.id, is_error: true, content: "unknown tool" }] });
