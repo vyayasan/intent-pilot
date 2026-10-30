@@ -63,6 +63,8 @@ export async function runAgent(
   const messages: Message[] = [{ role: "user", content: `Case ${caseId} is approved. Carry the approved intent to completion now.` }];
   const maxSteps = opts.maxSteps ?? MAX_STEPS;
 
+  // Serial by construction: one tool per reply, awaited before the next model call - no
+  // concurrent mutations exist inside a run, so terms cannot change beneath an in-flight tool.
   const callTool = async (name: string): Promise<{ content: string; isError?: boolean }> => {
     if ((name === "issue_card" || name === "execute_purchase") && used.has(name))
       return { isError: true, content: `${name} already fired this run. One shot only - do not retry; finish instead.` };
@@ -78,6 +80,11 @@ export async function runAgent(
       used.add(name);
       const r = await callApi("/api/create-card", { approval });
       steps.push(`issue_card -> ${r.status}`);
+      // REVIEW LIMITATION (I2, deferred with main's sign-off): reconcile-detection is a string
+      // match on the route's error body, not a typed state. Fails safe: a refusal we don't
+      // recognize still ends the run without card; a following execute_purchase on a missing
+      // card is itself refused and flips needsReconcile. Typed error codes need an api.ts
+      // contract change - deferred to keep this patch minimal before live staging.
       if (r.status !== 200) needsReconcile = /unresolved|reconcile/i.test(JSON.stringify(r.body));
       return { isError: r.status !== 200, content: JSON.stringify(r.body).slice(0, 4000) };
     }
@@ -85,7 +92,12 @@ export async function runAgent(
       used.add(name);
       const r = await callApi("/api/simulate", { caseId, kind: "in-policy" });
       steps.push(`execute_purchase -> ${r.status}`);
-      if (r.status !== 200 || r.body?.error) needsReconcile = true;
+      // Sequencing refusals ("create the card first") are recoverable in-loop: the model issues
+      // the card next. Every other failure latches needsReconcile - fail safe: an unrecognized
+      // error stops the run and asks a person, exactly like a known unknown outcome.
+      if (r.status !== 200 || r.body?.error) {
+        if (!/create the card first/i.test(JSON.stringify(r.body))) needsReconcile = true;
+      }
       return { isError: r.status !== 200, content: JSON.stringify(r.body).slice(0, 4000) };
     }
     return { isError: true, content: `unknown tool ${name}` };
@@ -109,7 +121,9 @@ export async function runAgent(
       const parsed = z.object({ summary: z.string().max(600) }).safeParse(u.input);
       const summary = parsed.success ? parsed.data.summary : "run finished";
       steps.push("finish");
-      return { ok: used.has("execute_purchase"), steps, summary, needsReconcile };
+      // ok means COMPLETED, not attempted: an ambiguous money outcome (needsReconcile) is never
+      // "complete" - a person must reconcile first, and the toast/audit must not claim otherwise.
+      return { ok: used.has("execute_purchase") && !needsReconcile, steps, summary, needsReconcile };
     }
     if (!EXEC_TOOLS.some((t) => t.name === u.name)) {
       messages.push({ role: "assistant", content: blocks }, { role: "user", content: [{ type: "tool_result", tool_use_id: u.id, is_error: true, content: "unknown tool" }] });

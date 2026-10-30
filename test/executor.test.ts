@@ -99,11 +99,15 @@ describe("execution agent (/api/agent-run)", () => {
       async closeCard(id: string) { return { id, status: "CLOSED" }; },
       async listCards() { return []; },
     };
-    const { call, approve } = setup(modelFromScript(["issue_card", "execute_purchase", "finish"]), gw);
+    const { call, approve, audit } = setup(modelFromScript(["issue_card", "execute_purchase", "finish"]), gw);
     const approval = await approve();
     const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
     expect(auths).toBe(1); // NO blind retry of an ambiguous authorization
     expect(d.run.needsReconcile).toBe(true);
+    expect(d.run.ok).toBe(false); // REVIEW I1: an unknown money outcome is never reported complete
+    const finished = audit.list().find((e: any) => (e.kind ?? e.type) === "agent_run_finished");
+    expect(finished).toBeTruthy();
+    expect(JSON.stringify(finished)).toContain('"ok":false'); // audit must not claim completion either
     expect(d.case.pendingAuthorization).toBeTruthy();
     expect(d.case.pendingAuthorization.reconciledAt).toBeUndefined();
   });
