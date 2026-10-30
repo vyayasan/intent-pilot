@@ -453,7 +453,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
     // new-purchase path is refused until an operator resolves each one with provider evidence.
     // Deliberately global and fail-closed: a same-vendor case is NOT the same purchase, and a
     // silently allowed fresh purchase could duplicate an attempt the provider committed.
-    if (restoredUnresolved.length && request.method === "POST" && ["/api/approve", "/api/create-card", "/api/simulate", "/api/change-terms"].includes(url.pathname)) {
+    if (restoredUnresolved.length && request.method === "POST" && ["/api/approve", "/api/agent-run", "/api/create-card", "/api/simulate", "/api/change-terms"].includes(url.pathname)) {
       audit.append("refused", { reason: "orphan unresolved authorization gate", orphans: restoredUnresolved.map((o) => o.requestId) });
       return json({ error: `${restoredUnresolved.length} preserved unresolved authorization(s) have no surviving case to enforce them; new purchases are refused until each is resolved by an operator with provider evidence (POST /api/resolve-restored).`, code: "orphan_authorization_unresolved", orphans: restoredUnresolved }, 409);
     }
@@ -981,6 +981,10 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (!parsed.success) return bad("invalid agent-run request", 400);
       const c = find(parsed.data.caseId);
       if (!c) return bad("case not found", 404);
+      // The artifact and the route must name the SAME case: the inner create-card keys off
+      // approval.caseId, so a mismatched body would read one case and mutate another.
+      if (typeof parsed.data.approval.caseId === "string" && parsed.data.approval.caseId !== parsed.data.caseId)
+        return bad("approval artifact belongs to a different case", 409);
       // Hard preconditions in code, before any model call: a person must have approved, and no
       // lock may stand. The agent never approves, never clears a lock, never overrides these.
       if (!c.intent) return bad("case not approved: a person approves before the agent runs", 409);

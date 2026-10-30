@@ -135,3 +135,59 @@ describe("execution agent (/api/agent-run)", () => {
     expect(d.run.error).toMatch(/did not call a tool|step budget/);
   });
 });
+
+describe("execution agent - review-requested bounds", () => {
+  it("refuses a tampered approval: wrong intentHash -> 409 refusal, audit-recorded, no card", async () => {
+    const { call, approve, audit } = setup(modelFromScript(["issue_card", "finish"]));
+    const approval = await approve();
+    approval.intentHash = "0".repeat(64); // tampered: no longer the approved intent
+    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
+    expect(d.run.ok).toBe(false);
+    expect(d.run.steps.join(",")).toContain("issue_card -> 409");
+    expect(d.case.card).toBeFalsy();
+    const refusals = audit.list().filter((e: any) => (e.kind ?? e.type) === "refused");
+    expect(refusals.length).toBeGreaterThan(0);
+  });
+
+  it("rejects a cross-case approval artifact before any model call", async () => {
+    const { call, approve } = setup(modelFromScript(["issue_card", "finish"]));
+    const approval = await approve();
+    approval.caseId = "case_other"; // artifact no longer names the route's case
+    const r = await call("/api/agent-run", { caseId: "case_acme", approval });
+    expect(r.status).toBe(409);
+    expect((await r.json()).error).toMatch(/different case/);
+  });
+
+  it("amount discipline: injected model tool arguments never reach the operation - purchase stays at the approved amount", async () => {
+    // A model that tries to steer amounts/vendors through tool input. The executor's tools take
+    // no arguments, so this input must be dropped wholesale.
+    const injected: ModelClient = (() => {
+      const script = ["read_state", "issue_card", "execute_purchase", "finish"];
+      let i = 0;
+      return { step: async () => {
+        const name = script[Math.min(i++, script.length - 1)];
+        if (name === "finish") return [{ type: "tool_use", id: `u${i}`, name, input: { summary: "done" } }];
+        return [{ type: "tool_use", id: `u${i}`, name, input: { amount: 999999, vendor: "Evil Corp", currency: "XXX", cardLimit: 999999 } }];
+      } };
+    })();
+    const { call, approve } = setup(injected);
+    const approval = await approve();
+    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
+    expect(d.run.ok).toBe(true);
+    const blob = JSON.stringify(d.case);
+    expect(blob).not.toContain("999999");
+    expect(blob).not.toContain("Evil Corp");
+    expect(blob).toContain("100"); // the approved monthly amount
+  });
+
+  it("notifications fire through the existing outbox hooks on the agent-driven path", async () => {
+    const { call, approve, audit } = setup(modelFromScript(["issue_card", "execute_purchase", "finish"]));
+    const approval = await approve();
+    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
+    expect(d.run.ok).toBe(true);
+    const kinds = audit.list().map((e: any) => e.kind ?? e.type);
+    // The same audited state transitions the manual flow produced - the outbox emits on each.
+    expect(kinds).toContain("card_created");
+    expect(kinds).toContain("authorization_cleared"); // outbox emits purchase_cleared on this transition
+  });
+});
