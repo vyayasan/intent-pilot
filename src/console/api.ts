@@ -15,6 +15,8 @@ import { Outbox } from "../notify/outbox.js";
 import { NotificationDispatcher } from "../notify/dispatcher.js";
 import type { EmailTransport } from "../notify/transport.js";
 import type { PlanResult } from "../agent/planner.js";
+import { runAgent, type AgentRunResult } from "../agent/executor.js";
+import type { ModelClient } from "../agent/model.js";
 
 // An authorization whose outcome the gateway never confirmed. While one is unresolved the card
 // is locked against purchase retries (a blind retry could duplicate a purchase); /api/reconcile
@@ -67,6 +69,9 @@ export interface CaseState {
 }
 
 const ApproveBody = z.object({ caseId: z.string() });
+const AgentRunBody = z.object({ caseId: z.string(), approval: z.object({
+  caseId: z.string(), intentId: z.string(), intentHash: z.string(), termsHash: z.string(),
+}).passthrough() });
 const CreateCardBody = z.object({ approval: z.object({
   caseId: z.string(), intentId: z.string(), intentHash: z.string(), termsHash: z.string(),
   amountCap: z.number(), currency: z.string(), cadence: z.string(), categories: z.array(z.string()),
@@ -161,6 +166,9 @@ export interface ConsoleApiOptions {
    *  live unresolved locks, consumed nonces or the live evidence trail as a "recovery" shortcut. */
   live?: boolean;
   planner?: (kase: PurchaseCase, forecast: { weeklyBalances: number[]; reserveFloor: number }) => Promise<PlanResult>;
+  /** Live model for the post-approval execution agent (/api/agent-run). Absent: the route answers 501
+      and card issuance stays a human button - the agent is never faked by a script. */
+  executorModel?: ModelClient;
   key?: string;
   approver?: string;
   now?: () => Date;
@@ -390,6 +398,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   // dry-run email to a real send. Everything else mutating: operator. Reads: viewer.
   const REQUIRED_ROLE: Record<string, Role> = {
     "POST /api/approve": "approver",
+    "POST /api/agent-run": "operator",
     "POST /api/reconcile-card": "operator",
     "POST /api/reject": "approver",
     "POST /api/notifications/promote": "approver",
@@ -965,6 +974,43 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       await dispatcher.deliver(outbox.emit("recommendation_rejected", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { approver: rejectorLabel, reason: parsed.data.reason, cardState: !c.card ? "none" : "closed" } }));
       persist();
       return json({ case: await view(c) });
+    }
+    if (url.pathname === "/api/agent-run" && request.method === "POST") {
+      if (!options.executorModel) return bad("no model configured: the execution agent cannot run - use the human buttons", 501);
+      const parsed = AgentRunBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("invalid agent-run request", 400);
+      const c = find(parsed.data.caseId);
+      if (!c) return bad("case not found", 404);
+      // Hard preconditions in code, before any model call: a person must have approved, and no
+      // lock may stand. The agent never approves, never clears a lock, never overrides these.
+      if (!c.intent) return bad("case not approved: a person approves before the agent runs", 409);
+      if (c.requiresReapproval) return bad("deal changed; fresh human approval required before the agent runs", 409);
+      if (c.rejected) return bad("case is rejected", 409);
+      if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile before the agent runs", 409);
+      if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before the agent runs", 409);
+      if (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) return bad("authorization unresolved; reconcile before the agent runs", 409);
+      audit.append("agent_run_started", { caseId: c.kase.id, initiatedBy: identity ? (identity.email ?? identity.sub) : "demo-operator" }, c.kase.id);
+      // The agent drives the SAME audited operations, in-process, under the initiating operator's
+      // own identity (their cookie/token forwarded verbatim) - no new auth surface, no privilege.
+      const fwd: Record<string, string> = { "content-type": "application/json" };
+      const cookie = request.headers.get("cookie"); if (cookie) fwd.cookie = cookie;
+      const tok = request.headers.get("x-console-token"); if (tok) fwd["x-console-token"] = tok;
+      const ori = request.headers.get("origin"); if (ori) fwd.origin = ori;
+      const callApi = async (path: string, body: unknown): Promise<{ status: number; body: any }> => {
+        const init: RequestInit = body === undefined ? { method: "GET", headers: fwd } : { method: "POST", headers: fwd, body: JSON.stringify(body) };
+        const r = await handle(new Request(`http://agent-internal${path}`, init));
+        return { status: r.status, body: await r.json().catch(() => ({})) };
+      };
+      let run: AgentRunResult;
+      try {
+        run = await runAgent(options.executorModel, c.kase.id, parsed.data.approval, callApi);
+      } catch (e) {
+        audit.append("agent_run_error", { error: e instanceof Error ? e.message.slice(0, 200) : String(e) }, c.kase.id);
+        return bad("agent run failed: " + (e instanceof Error ? e.message : String(e)), 500);
+      }
+      audit.append("agent_run_finished", { ok: run.ok, steps: run.steps, needsReconcile: run.needsReconcile, summary: run.summary?.slice(0, 300), error: run.error?.slice(0, 200) }, c.kase.id);
+      persist();
+      return json({ run, case: await view(c) });
     }
     if (url.pathname === "/api/extract" && request.method === "POST") {
       if (!options.planner) return bad("no model configured: the terms above stay human-entered", 501);

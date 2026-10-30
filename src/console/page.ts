@@ -141,6 +141,7 @@ function render() {
     (!c.intent && !c.card ? '<button class="act sec" id="extract">Extract terms (model)</button>' : '') +
     (!c.createCardUnresolved && d.cadence !== 'ESCALATE' && c.freezeState !== 'unknown' && c.freezeState !== 'pending' && (!c.intent || c.requiresReapproval || (c.card && c.card.status === 'CLOSED')) ? '<button class="act" id="approve">' + (c.requiresReapproval ? 'Approve new deal' : (c.card && c.card.status === 'CLOSED') ? 'Approve fresh intent' : 'Approve intent') + '</button>' : '') +
     (!c.createCardUnresolved && c.intent && !c.requiresReapproval && (!c.card || ((c.card.status === 'FROZEN' || c.card.status === 'CLOSED') && state.approval)) ? '<button class="act" id="mkcard">Create card</button>' : '') +
+    (c.intent && !c.requiresReapproval && state.approval && !c.card ? ' <button class="act" id="runagent" title="The execution agent issues the card from your approval and executes the approved purchase - bounds enforced in code">Run agent</button>' : '') +
     (c.card ? '<button class="act sec" data-sim="in-policy">Simulate: in policy</button><button class="act sec" data-sim="over-cap">Simulate: over cap</button><button class="act sec" data-sim="wrong-currency">Simulate: wrong currency</button><button class="act sec" data-sim="wrong-category">Simulate: wrong category</button>' + (c.card.status === 'ACTIVE' ? '<button class="act warn" id="freeze">Freeze card</button>' : '') : '') +
     (!c.rejected && !c.card ? '<button class="act warn" id="reject">Reject</button>' : '') +
     '</div>' +
@@ -185,6 +186,18 @@ function render() {
     };
     if (state.approval) { doCreate(state.approval); return; }
     toast('Approve the intent first');
+  };
+  var ra = document.getElementById('runagent');
+  if (ra) ra.onclick = function() {
+    if (!state.approval) { toast('Approve the intent first'); return; }
+    ra.disabled = true; toast('Agent running: issuing the card and executing the approved purchase...');
+    api('/api/agent-run', { caseId: c.kase.id, approval: state.approval }).then(function(d2){
+      if (d2.error) { toast(d2.error); load(); return; }
+      state.approval = null;
+      var r = d2.run || {};
+      toast(r.ok ? ('Agent run complete: ' + (r.summary || 'purchase executed')) : ('Agent run ended: ' + (r.summary || r.error || 'see the case log')));
+      load();
+    }, function(){ toast('Agent run failed: no response from the server'); load(); });
   };
   Array.prototype.forEach.call(p.querySelectorAll('[data-sim]'), function(b){ b.onclick = function(){ api('/api/simulate', { caseId: c.kase.id, kind: b.dataset.sim }).then(function(d2){ if (d2.error) { toast(d2.error); load(); return; } var t = d2.transaction; toast(t.status === 'CLEARING' ? 'Cleared: ' + t.amount + ' ' + t.currency : 'Declined: ' + t.failureReason + ' - the card enforced the intent'); load(); }); }; });
   var fr = document.getElementById('freeze');
