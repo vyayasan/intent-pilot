@@ -1,6 +1,6 @@
 # Kit 2 Eval Results
 
-Run: 2026-10-27T19:38:59.026Z (fixture clock 2026-10-06T12:00:00.000Z)
+Run: 2026-11-02T13:48:14.402Z (fixture clock 2026-10-06T12:00:00.000Z)
 
 **58/58 scenarios pass.** Deterministic fixtures only; no live model, no live API.
 
