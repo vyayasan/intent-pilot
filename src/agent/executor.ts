@@ -54,7 +54,7 @@ export async function runAgent(
   caseId: string,
   approval: unknown,
   callApi: ExecutorCallApi,
-  opts: { maxSteps?: number } = {},
+  opts: { maxSteps?: number; scenario?: "in-policy" | "over-cap" | "wrong-currency" | "wrong-category" } = {},
 ): Promise<AgentRunResult> {
   const steps: string[] = [];
   const used = new Set<string>();
@@ -94,7 +94,9 @@ export async function runAgent(
       return { isError: r.status !== 200, content: JSON.stringify(r.body).slice(0, 4000) };
     }
     if (name === "execute_purchase") {
-      const r = await callApi("/api/simulate", { caseId, kind: "in-policy" });
+      // Scenario harness: the kind is set by the OPERATOR at run launch (server-side run opts),
+        // never by the model - the model still cannot name amounts, currencies or categories.
+        const r = await callApi("/api/simulate", { caseId, kind: opts.scenario ?? "in-policy" });
       const body = JSON.stringify(r.body);
       // A pre-gateway refusal ("create the card first") never reached the provider: the shot is
       // NOT consumed - the model may correct the sequence. Anything past this point reached the

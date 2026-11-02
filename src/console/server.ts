@@ -117,7 +117,7 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
   // a different store than the console actually wrote.
   const stateTarget = resolveStateTarget(env);
   const auditLog = new AuditLog(stateTarget.auditFile);
-  const model = modelFromEnv(env, { onUsage: (u) => auditLog.append("model_usage", { model: env.ANTHROPIC_MODEL ?? DEFAULT_MODEL, inputTokens: u.input_tokens ?? null, outputTokens: u.output_tokens ?? null }) });
+  const model = modelFromEnv(env, { onUsage: (u) => auditLog.append("model_usage", { model: u.model ?? env.ANTHROPIC_MODEL ?? DEFAULT_MODEL, inputTokens: u.input_tokens ?? null, outputTokens: u.output_tokens ?? null }) });
   // Email transport: preview (nothing sent) unless the operator explicitly selects one.
   // dry-run exercises the pipeline without a provider; http is EXPERIMENTAL and posts to
   // INTENTPAY_MAIL_ENDPOINT - never a real provider account, which is an owner-approved decision.

@@ -217,3 +217,48 @@ describe("execution agent - review-requested bounds", () => {
     expect(kinds).toContain("authorization_cleared"); // outbox emits purchase_cleared on this transition
   });
 });
+
+describe("scenario harness (operator-set purchase kind)", () => {
+  it("passes the operator scenario to the typed simulate while the model only executes", async () => {
+    const captured: ModelRequest[] = [];
+    const { call, approve, audit } = setup(modelFromScript(["read_state", "issue_card", "execute_purchase", "finish"], captured));
+    const approval = await approve();
+    const r = await call("/api/agent-run", { caseId: "case_acme", approval, scenario: "over-cap" });
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    // a documented decline is a decisive completed outcome for the agent
+    expect(d.run.ok).toBe(true);
+    expect(d.run.steps.join(",")).toContain("execute_purchase -> 200");
+    const events = audit.list().map((e: any) => JSON.stringify(e));
+    expect(events.some((e: string) => e.includes("authorization_attempt") && e.includes("\"kind\":\"over-cap\""))).toBe(true);
+    expect(events.some((e: string) => e.includes("agent_run_started") && e.includes("\"scenario\":\"over-cap\""))).toBe(true);
+    // enforcement: the card declined the over-cap charge
+    expect(JSON.stringify(d.case)).toContain("declined");
+    // the model never saw or chose the scenario: tool inputs carry no kind
+    const toolUses = captured.flatMap((req) => req.messages.flatMap((m) => Array.isArray(m.content) ? m.content : []))
+      .filter((b: any) => b.type === "tool_use");
+    expect(toolUses.every((b: any) => !JSON.stringify(b.input ?? {}).includes("over-cap"))).toBe(true);
+  });
+});
+
+describe("scenario harness - symmetric decline kinds", () => {
+  for (const scenario of ["wrong-currency", "wrong-category"] as const) {
+    it(`operator-set ${scenario} reaches the typed simulate and declines; the model only executes`, async () => {
+      const captured: ModelRequest[] = [];
+      const { call, approve, audit } = setup(modelFromScript(["read_state", "issue_card", "execute_purchase", "finish"], captured));
+      const approval = await approve();
+      const r = await call("/api/agent-run", { caseId: "case_acme", approval, scenario });
+      expect(r.status).toBe(200);
+      const d = await r.json();
+      expect(d.run.ok).toBe(true); // documented decline is a decisive completed outcome
+      expect(d.run.steps.join(",")).toContain("execute_purchase -> 200");
+      const events = audit.list().map((e: any) => JSON.stringify(e));
+      expect(events.some((e: string) => e.includes("authorization_attempt") && e.includes(`\"kind\":\"${scenario}\"`))).toBe(true);
+      expect(events.some((e: string) => e.includes("agent_run_started") && e.includes(`\"scenario\":\"${scenario}\"`))).toBe(true);
+      expect(JSON.stringify(d.case)).toContain("declined");
+      const toolUses = captured.flatMap((req) => req.messages.flatMap((m) => Array.isArray(m.content) ? m.content : []))
+        .filter((b: any) => b.type === "tool_use");
+      expect(toolUses.every((b: any) => !JSON.stringify(b.input ?? {}).includes(scenario))).toBe(true);
+    });
+  }
+});

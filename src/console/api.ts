@@ -71,7 +71,10 @@ export interface CaseState {
 const ApproveBody = z.object({ caseId: z.string() });
 const AgentRunBody = z.object({ caseId: z.string(), approval: z.object({
   caseId: z.string(), intentId: z.string(), intentHash: z.string(), termsHash: z.string(),
-}).passthrough() });
+}).passthrough(),
+  // Scenario harness (operator-set at run launch): presents a violating charge to the agent's
+  // own typed execute_purchase. Never model-visible; absence = the normal in-policy purchase.
+  scenario: z.enum(["in-policy", "over-cap", "wrong-currency", "wrong-category"]).optional() });
 const CreateCardBody = z.object({ approval: z.object({
   caseId: z.string(), intentId: z.string(), intentHash: z.string(), termsHash: z.string(),
   amountCap: z.number(), currency: z.string(), cadence: z.string(), categories: z.array(z.string()),
@@ -993,7 +996,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile before the agent runs", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before the agent runs", 409);
       if (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) return bad("authorization unresolved; reconcile before the agent runs", 409);
-      audit.append("agent_run_started", { caseId: c.kase.id, initiatedBy: identity ? (identity.email ?? identity.sub) : "demo-operator" }, c.kase.id);
+      audit.append("agent_run_started", { caseId: c.kase.id, initiatedBy: identity ? (identity.email ?? identity.sub) : "demo-operator", scenario: parsed.data.scenario ?? "in-policy" }, c.kase.id);
       // The agent drives the SAME audited operations, in-process, under the initiating operator's
       // own identity (their cookie/token forwarded verbatim) - no new auth surface, no privilege.
       const fwd: Record<string, string> = { "content-type": "application/json" };
@@ -1007,7 +1010,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       };
       let run: AgentRunResult;
       try {
-        run = await runAgent(options.executorModel, c.kase.id, parsed.data.approval, callApi);
+        run = await runAgent(options.executorModel, c.kase.id, parsed.data.approval, callApi, { scenario: parsed.data.scenario });
       } catch (e) {
         audit.append("agent_run_error", { error: e instanceof Error ? e.message.slice(0, 200) : String(e) }, c.kase.id);
         return bad("agent run failed: " + (e instanceof Error ? e.message : String(e)), 500);
