@@ -50,13 +50,13 @@ Provider is config, not code:
 ```bash
 git clone https://github.com/vyayasan/intent-pilot
 cd intent-pilot
-npm install
+npm ci
 npm start
 ```
 
 Open http://localhost:3000. Review a case, approve the intent, create the card, then try the purchases: the in-policy one clears; over-cap, wrong-currency and wrong-category ones decline with the rule they broke. Freeze the card and everything declines. The console binds to loopback only, checks Host and Origin, and uses a per-run token. With `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` set it runs live against the Airwallex sandbox instead of the simulator.
 
-`npm run demo` runs the whole story against the sandbox, deterministic and narrated for screen recording. Sandbox money only.
+The supported entry point is `npm start`. It works without credentials in the labelled simulator. To use the existing sandbox and model, set `AIRWALLEX_CLIENT_ID`, `AIRWALLEX_API_KEY` and `ANTHROPIC_API_KEY` in the same terminal before starting. No email is sent by default. See [the script prerequisites](scripts/README.md) before running any historical live-proof harness; `npm run demo` is an internal recording harness, not a standalone quickstart.
 
 ## Verify
 

@@ -1,3 +1,5 @@
+// INTERNAL HISTORICAL HARNESS, not the supported user quickstart.
+// Read scripts/README.md for environment-specific prerequisites. Use npm start for the app.
 // Live Airwallex sandbox run for Kit 2: real cardholder, real virtual cards with controls,
 // simulated authorizations that pass and fail, freeze/unfreeze, capture, idempotency probe.
 // Credentials live only in the environment of the local auth proxy (localhost:8788);

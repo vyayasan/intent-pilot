@@ -1,3 +1,5 @@
+// INTERNAL HISTORICAL HARNESS, not the supported user quickstart.
+// Read scripts/README.md for environment-specific prerequisites. Use npm start for the app.
 // IntentPay live demo: the whole story against the Airwallex sandbox, deterministic and narrated for
 // screen recording. Terms arrive by intake email, policy code decides, a person approves a bound intent,
 // the card enforces it at the rail - accepts and declines are real sandbox API responses. Sandbox money only.

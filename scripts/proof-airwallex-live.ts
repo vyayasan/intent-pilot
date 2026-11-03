@@ -1,3 +1,5 @@
+// INTERNAL HISTORICAL HARNESS, not the supported user quickstart.
+// Read scripts/README.md for environment-specific prerequisites. Use npm start for the app.
 /**
  * Live non-simulator proof of the Airwallex sandbox surface IntentPay actually uses.
  * Runs the app's own gateway code (AirwallexClient + LiveIssuingGateway) against
