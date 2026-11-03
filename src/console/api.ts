@@ -696,8 +696,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       const base = { merchant: c.kase.vendor, category: c.intent.categories[0], currency: c.intent.currency };
       const auth = parsed.data.kind === "in-policy" ? { ...base, amount: c.intent.amountCap }
         : parsed.data.kind === "over-cap" ? { ...base, amount: c.intent.amountCap + 1 }
-        : parsed.data.kind === "wrong-currency" ? { ...base, amount: c.intent.amountCap, currency: "EUR" }
-        : { ...base, amount: c.intent.amountCap, category: "travel" };
+        : parsed.data.kind === "wrong-currency" ? { ...base, amount: c.intent.amountCap, currency: c.intent.currency === "EUR" ? "USD" : "EUR" }
+        : { ...base, amount: c.intent.amountCap, category: c.intent.categories.includes("travel") ? "software" : "travel" };
       // An unresolved authorization locks the card against purchase retries.
       if (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) {
         return json({ error: "A previous authorization's outcome is unresolved. Reconcile the card's transactions before retrying - a blind retry could duplicate a purchase.", code: "authorization_unresolved", pendingAuthorization: c.pendingAuthorization }, 409);
@@ -1028,6 +1028,12 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile before the agent runs", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before the agent runs", 409);
       if (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) return bad("authorization unresolved; reconcile before the agent runs", 409);
+      // A saved intent is not a reusable spending grant. Validate the exact approval before
+      // even calling the model: a replay must not skip issuance and spend on the old card.
+      const fullApproval = CreateCardBody.safeParse({ approval: parsed.data.approval });
+      if (!fullApproval.success) return bad("invalid complete approval artifact", 400);
+      const approvalRefusal = verifier.check(fullApproval.data.approval as Approval, c.kase.id, c.intent, DEFAULT_POLICY.version, now());
+      if (approvalRefusal) { audit.append("refused", { reason: approvalRefusal }, c.kase.id); return bad(approvalRefusal, 409); }
       audit.append("agent_run_started", { caseId: c.kase.id, initiatedBy: identity ? (identity.email ?? identity.sub) : "demo-operator", scenario: parsed.data.scenario ?? "in-policy" }, c.kase.id);
       // The agent drives the SAME audited operations, in-process, under the initiating operator's
       // own identity (their cookie/token forwarded verbatim) - no new auth surface, no privilege.

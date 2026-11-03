@@ -69,6 +69,10 @@ export async function runAgent(
   // Serial by construction: one tool per reply, awaited before the next model call - no
   // concurrent mutations exist inside a run, so terms cannot change beneath an in-flight tool.
   const callTool = async (name: string): Promise<{ content: string; isError?: boolean }> => {
+    if (needsReconcile) {
+      steps.push(`${name} refused - unresolved outcome`);
+      return { isError: true, content: "Outcome unresolved. No more tools may run; finish and ask a person to reconcile." };
+    }
     if ((name === "issue_card" || name === "execute_purchase") && used.has(name)) {
       steps.push(`${name} refused - already fired this run`); // refusals are provenance too
       return { isError: true, content: `${name} already fired this run. One shot only - do not retry; finish instead.` };
@@ -90,7 +94,7 @@ export async function runAgent(
       // recognize still ends the run without card; a following execute_purchase on a missing
       // card is itself refused and flips needsReconcile. Typed error codes need an api.ts
       // contract change - deferred to keep this patch minimal before live staging.
-      if (r.status !== 200) needsReconcile = /unresolved|reconcile/i.test(JSON.stringify(r.body));
+      if (r.status !== 200) needsReconcile = /unresolved|reconcile|unknown/i.test(JSON.stringify(r.body));
       return { isError: r.status !== 200, content: JSON.stringify(r.body).slice(0, 4000) };
     }
     if (name === "execute_purchase") {
@@ -110,7 +114,7 @@ export async function runAgent(
       // Completion is DECISIVE only: the route's 200 carries the final transaction (cleared OR
       // documented decline - both completed outcomes). Everything else (4xx/5xx error codes,
       // unconfirmed capture) is an unknown or locked outcome: stop, never call this complete.
-      if (r.status === 200 && r.body && r.body.transaction) {
+      if (r.status === 200 && r.body?.transaction && ["CLEARING", "FAILED"].includes(r.body.transaction.status)) {
         purchaseCompleted = true;
         return { content: body.slice(0, 4000) };
       }

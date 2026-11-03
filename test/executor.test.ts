@@ -211,10 +211,9 @@ describe("execution agent - review-requested bounds", () => {
     const { call, approve, audit } = setup(modelFromScript(["issue_card", "finish"]));
     const approval = await approve();
     approval.intentHash = "0".repeat(64); // tampered: no longer the approved intent
-    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
-    expect(d.run.ok).toBe(false);
-    expect(d.run.steps.join(",")).toContain("issue_card -> 409");
-    expect(d.case.card).toBeFalsy();
+    const r = await call("/api/agent-run", { caseId: "case_acme", approval });
+    expect(r.status).toBe(409);
+    expect((await r.json()).error).toBeTruthy();
     const refusals = audit.list().filter((e: any) => (e.kind ?? e.type) === "refused");
     expect(refusals.length).toBeGreaterThan(0);
   });
@@ -306,3 +305,60 @@ describe("scenario harness - symmetric decline kinds", () => {
     });
   }
 });
+
+describe("execution agent core journey hardening", () => {
+  it("refuses replay before any model call or second purchase", async () => {
+    let calls = 0;
+    const inner = modelFromScript(["issue_card", "execute_purchase", "finish"]);
+    const model: ModelClient = { step: async (r) => { calls++; return inner.step(r); } };
+    const { call, approve, api } = setup(model);
+    const approval = await approve();
+    expect((await (await call("/api/agent-run", { caseId: "case_acme", approval })).json()).run.ok).toBe(true);
+    const before = calls;
+    expect((await call("/api/agent-run", { caseId: "case_acme", approval })).status).toBe(409);
+    expect(calls).toBe(before);
+    const d = await (await api(new Request("http://localhost/api/cases"))).json();
+    expect(d.cases.find((c: any) => c.kase.id === "case_acme").transactions).toHaveLength(1);
+  });
+  it("serializes whole agent runs on a case, including before issuance", async () => {
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(r => release = r), started = new Promise<void>(r => entered = r);
+    let calls = 0;
+    const model: ModelClient = { step: async () => { calls++; entered(); await gate; return [{ type: "tool_use", id: "f", name: "finish", input: { summary: "no action" } }]; } };
+    const { call, approve } = setup(model);
+    const approval = await approve();
+    const first = call("/api/agent-run", { caseId: "case_acme", approval });
+    await started;
+    const second = call("/api/agent-run", { caseId: "case_acme", approval });
+    await new Promise(r => setTimeout(r, 10));
+    expect(calls).toBe(1);
+    release(); await first;
+    expect((await second).status).toBe(200);
+  });
+  it("supports the complete changed-deal fresh-approval replacement agent journey", async () => {
+    const { call, approve, api } = setup(modelFromScript(["issue_card", "execute_purchase", "finish", "issue_card", "execute_purchase", "finish"]));
+    const a = await approve();
+    const d1 = await (await call("/api/agent-run", { caseId: "case_acme", approval: a })).json();
+    const cases = await (await api(new Request("http://localhost/api/cases"))).json();
+    const original = cases.cases.find((c: any) => c.kase.id === "case_acme");
+    expect((await call("/api/change-terms", { caseId: "case_acme", terms: { ...original.kase.terms, monthlyPrice: 90 }, rawTerms: "90 USD per month, 984 USD annually. Software. 30 days notice." })).status).toBe(200);
+    const b = await approve();
+    const d2 = await (await call("/api/agent-run", { caseId: "case_acme", approval: b })).json();
+    expect(d2.run.ok).toBe(true);
+    expect(d2.case.card.id).not.toBe(d1.case.card.id);
+    expect(d2.case.card.controls.amountLimit).toBe(90);
+    expect(d2.case.transactions).toHaveLength(2);
+  });
+});
+
+for (const [currency, category] of [["EUR", "software"], ["USD", "travel"]]) {
+  it(`decline probes differ from the approved ${currency}/${category} controls`, async () => {
+    const seeds = demoCases(); seeds[0]!.kase.terms!.currency = currency; seeds[0]!.kase.terms!.category = category;
+    const api = createConsoleApi({ seedCases: seeds, key: "k", sessionToken: "tok", allowedOrigins: ["http://localhost:3000"] });
+    const call = async (path: string, body: unknown) => (await api(new Request(`http://localhost:3000${path}`, { method: "POST", headers: { "content-type": "application/json", "x-console-token": "tok", origin: "http://localhost:3000" }, body: JSON.stringify(body) }))).json();
+    const { approval } = await call("/api/approve", { caseId: "case_acme" });
+    await call("/api/create-card", { caseId: "case_acme", approval });
+    const d = await call("/api/simulate", { caseId: "case_acme", kind: currency === "EUR" ? "wrong-currency" : "wrong-category" });
+    expect(d.transaction.status).toBe("FAILED");
+  });
+}
