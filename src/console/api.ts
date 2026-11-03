@@ -764,6 +764,21 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
           persist();
           return json({ error: `The authorization is not final - ${why}. It is neither cleared nor declined; reconcile the card's transactions before retrying.`, code: "capture_unconfirmed", transactionId: t.id, requestId }, 409);
         }
+      } else if (t.status === "CLEARING") {
+        // Authorization came back already cleared (no capture step): same cleared truth as above.
+        c.pendingAuthorization = undefined;
+        c.log.push(`Authorization ${t.id} cleared: ${t.amount} ${t.currency} at ${t.merchant}.`);
+        audit.append("authorization_cleared", { transactionId: t.id, amount: t.amount, currency: t.currency }, c.kase.id);
+        await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap } }));
+        persist();
+      } else if (t.status !== "FAILED") {
+        // Hardening: only a documented FAILED payload is a rejection. Any other status here
+        // (not PENDING, not FAILED) is neither cleared nor declined: lock stays, reconcile.
+        attempt.lastError = `authorization status unexpected: ${t.status}`;
+        c.log.push(`Authorization ${t.id} returned status ${t.status}: neither a documented decline nor a capturable authorization. Outcome unconfirmed - reconcile the card's transactions before retrying.`);
+        audit.append("capture_unconfirmed", { requestId, transactionId: t.id, status: t.status }, c.kase.id);
+        persist();
+        return json({ error: `The authorization is not final - status is ${t.status}. It is neither cleared nor declined; reconcile the card's transactions before retrying.`, code: "capture_unconfirmed", transactionId: t.id, requestId }, 409);
       } else {
         // A decline payload in a successful response is the ONLY definitive rejection: the gateway
         // recorded and refused the authorization. No funds were authorized.

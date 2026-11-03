@@ -153,6 +153,27 @@ describe("execution agent (/api/agent-run)", () => {
     expect(d.run.summary).toBeTruthy();
   });
 
+  it("an authorization with an unexpected status (neither PENDING nor FAILED) is unknown, never complete or declined", async () => {
+    let auths = 0;
+    const gw = {
+      async createCardholder(_h: any, _k: string) { return { state: "ok", cardholder: { id: "ch1", name: "S", email: "s@x" } }; },
+      async createCard(_r: any, _k: string) { return { id: "card1", cardholderId: "ch1", controls: {}, status: "ACTIVE" }; },
+      async authorize(id: string, a: any) { auths++; return { id: "t1", cardId: id, amount: a.amount, currency: a.currency, status: "SETTLING" }; },
+      async transactions() { return [] as CardTransaction[]; },
+      async freezeCard(id: string) { return { id, status: "FROZEN" }; },
+      async closeCard(id: string) { return { id, status: "CLOSED" }; },
+      async listCards() { return []; },
+    };
+    const { call, approve } = setup(modelFromScript(["issue_card", "execute_purchase", "finish"]), gw);
+    const approval = await approve();
+    const d = await (await call("/api/agent-run", { caseId: "case_acme", approval })).json();
+    expect(auths).toBe(1);
+    expect(d.run.needsReconcile).toBe(true);
+    expect(d.run.ok).toBe(false);
+    expect(d.case.pendingAuthorization).toBeTruthy();
+    expect(d.run.summary).toBeTruthy();
+  });
+
   it("terminates bounded when the model only answers in prose", async () => {
     const { call, approve } = setup(modelFromScript([{ text: true }]));
     const approval = await approve();
