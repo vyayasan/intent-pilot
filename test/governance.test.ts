@@ -68,6 +68,10 @@ describe("guardrails", () => {
     expect(v.find((x) => x.check === "no_new_facts")?.detail).toContain("9000");
     expect(v.find((x) => x.check === "no_new_facts")?.detail).toContain("97");
   });
+  it("does not ground a rationale number in a substring of a source number", () => {
+    const p = {...goodProposal,rationale:"The vendor has 98 customers."};
+    expect(checkGuardrails(p,kase).violations.some(v=>v.detail.includes("rationale carries numbers"))).toBe(true);
+  });
   it("allows citations of the forecast summary fields, but not invented phrases", () => {
     const ctx = { extraNumbers: [500], extraText: JSON.stringify({ reserve_floor: 500, horizon_weeks: 12 }) };
     const p = { ...goodProposal, cited_facts: ["$100 per month", "reserve_floor: 500", "horizon_weeks: 12"] };

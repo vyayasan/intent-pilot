@@ -55,7 +55,7 @@ function derivedNumbers(c: PurchaseCase, extra: number[] = []): { magnitudes: Se
 export function checkGuardrails(p: Proposal, c: PurchaseCase, ctx?: PolicyContext): { violations: Violation[]; warnings: string[] } {
   const v: Violation[] = [], warnings: string[] = [];
   const text = [p.rationale, ...CRITERIA.map((k) => p.rubric[k].note)].join("\n");
-  const hay = allowedText(c, ctx);
+  const allowedNumbers = new Set(numbersIn(allowedText(c, ctx)).map(Number));
 
   // 1. No new facts: every extracted number must appear in the vendor terms text.
   const t = p.extracted_terms;
@@ -73,7 +73,7 @@ export function checkGuardrails(p: Proposal, c: PurchaseCase, ctx?: PolicyContex
   // 3. Numbers in the rationale must come from the terms text, or be plain arithmetic derived from it.
   const derived = derivedNumbers(c, (ctx?.extraNumbers ?? []).filter((n): n is number => n != null));
   const unknownNumbers = [...new Set(numbersIn(text))].filter((n) => {
-    if (hay.includes(n) || extracted.includes(n)) return false;
+    if (allowedNumbers.has(Number(n)) || extracted.includes(n)) return false;
     const num = Number(n);
     if (derived.magnitudes.has(round2(num))) return false;
     if (Number.isInteger(num) && derived.factors.has(num)) return false;
