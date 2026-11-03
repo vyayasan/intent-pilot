@@ -127,6 +127,12 @@ export class LiveIssuingGateway implements IssuingGateway {
     };
   }
 
+  async readCardStatus(cardId: string): Promise<Card["status"] | undefined> {
+    const j = await this.client.getCard(cardId);
+    // Only documented states establish current status. Unknown is not "frozen".
+    return j.card_status === "ACTIVE" ? "ACTIVE" : j.card_status === "INACTIVE" ? "FROZEN" : j.card_status === "CLOSED" ? "CLOSED" : undefined;
+  }
+
   async readCardControls(cardId: string): Promise<Card["controls"] | undefined> {
     const j = await this.client.getCard(cardId);
     return LiveIssuingGateway.controlsFromProvider(j);

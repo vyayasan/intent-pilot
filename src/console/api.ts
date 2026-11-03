@@ -125,6 +125,7 @@ export interface CaseView {
   intent?: PurchaseIntent;
   intentHash?: string;
   card?: Card;
+  cardStatusRead?: { state: "ok" | "unknown"; checkedAt: string; error?: string };
   transactions: CardTransaction[];
   /** Ledger read health: degraded = showing last-known entries; unavailable = no last-known either. */
   ledger: { state: "ok" | "degraded" | "unavailable"; lastKnownAt?: string; error?: string };
@@ -350,6 +351,21 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   // Gateways may be sync (sim) or async (live) - await both, undefined on any failure.
   const tryCall = async <T>(fn: () => T | Promise<T>): Promise<T | undefined> => { try { return await fn(); } catch { return undefined; } };
   const view = async (c: CaseState): Promise<CaseView> => {
+    // Status is a fresh read, separate from saved issuance history. Never mutate provider
+    // state or overwrite local workflow locks from a read-only case view.
+    let currentCard = c.card;
+    let cardStatusRead: CaseView["cardStatusRead"];
+    if (c.card) {
+      const checkedAt = now().toISOString();
+      try {
+        const status = await gateway.readCardStatus?.(c.card.id);
+        if (status !== "ACTIVE" && status !== "FROZEN" && status !== "CLOSED") throw new Error("provider status unavailable or unrecognized");
+        currentCard = { ...c.card, status };
+        cardStatusRead = { state: "ok", checkedAt };
+      } catch {
+        cardStatusRead = { state: "unknown", checkedAt, error: "Current provider status unavailable. Saved status is not current evidence." };
+      }
+    }
     // Fetch each known transaction; on provider failure fall back to last-known evidence and
     // SAY SO. A silently empty list would look like "no transactions", which may be false.
     let ledgerError: string | undefined;
@@ -381,7 +397,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       : { cadence: "ESCALATE", reasons: ["terms not extracted yet"], savingsPct: null, annualBreachWeek: null, monthlyBreachWeek: null, reconsiderAt: null },
     intent: c.intent,
     intentHash: c.intent ? hashIntent(c.intent) : undefined,
-    card: c.card,
+    card: currentCard,
+    cardStatusRead,
     transactions: txns,
     ledger,
     emailMode: options.emailTransport?.name ?? "preview",

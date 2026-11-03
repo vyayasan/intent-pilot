@@ -48,6 +48,8 @@ export interface IssuingGateway {
   listCards(cardholderId: string): Maybe<Card[]>;
   /** Provider-side read-back of a card's actual controls - adopt requires verifying or
    *  correcting these, never overlaying local assumptions (round-3 N1). */
+  /** Read-only current provider status. Missing/unknown is never evidence of ACTIVE. */
+  readCardStatus?(cardId: string): Maybe<Card["status"] | undefined>;
   readCardControls(cardId: string): Maybe<CardControls | undefined>;
   /** Correct a card's controls provider-side and return the post-write read-back. */
   setCardControls(cardId: string, controls: CardControls): Maybe<CardControls | undefined>;
@@ -61,7 +63,7 @@ export interface IssuingGateway {
 }
 
 export type SimGateway = {
-  [K in keyof IssuingGateway as IssuingGateway[K] extends (...a: never[]) => unknown ? K : never]: IssuingGateway[K] extends (...a: infer A) => Maybe<infer R> ? (...a: A) => R : never;
+  [K in keyof IssuingGateway as NonNullable<IssuingGateway[K]> extends (...a: never[]) => unknown ? K : never]: NonNullable<IssuingGateway[K]> extends (...a: infer A) => Maybe<infer R> ? (...a: A) => R : never;
 } & { supportsAuthoritativeAbsence?: boolean };
 
 export function makeSim(opts: { walletBalance?: number } = {}): SimGateway & { walletBalance: () => number } {
@@ -114,6 +116,7 @@ export function makeSim(opts: { walletBalance?: number } = {}): SimGateway & { w
       return c;
     }),
     listCards: (cardholderId) => [...cards.values()].filter((c) => c.cardholderId === cardholderId),
+    readCardStatus: (cardId) => cards.get(cardId)?.status,
     readCardControls: (cardId) => cards.get(cardId)?.controls,
     setCardControls: (cardId, controls) => {
       const c = cards.get(cardId);

@@ -51,6 +51,7 @@ export class DropCreateResponseGateway implements IssuingGateway {
   refund(...args: Parameters<IssuingGateway["refund"]>) { return this.inner.refund(...args); }
   listTransactions(...args: Parameters<IssuingGateway["listTransactions"]>) { return this.inner.listTransactions(...args); }
   listCards(...args: Parameters<IssuingGateway["listCards"]>) { return this.inner.listCards(...args); }
+  readCardStatus(cardId: string) { return this.inner.readCardStatus?.(cardId); }
   readCardControls(...args: Parameters<IssuingGateway["readCardControls"]>) { return this.inner.readCardControls(...args); }
   setCardControls(...args: Parameters<IssuingGateway["setCardControls"]>) { return this.inner.setCardControls(...args); }
   findCardholderByEmail(...args: Parameters<IssuingGateway["findCardholderByEmail"]>) { return this.inner.findCardholderByEmail(...args); }
