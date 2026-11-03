@@ -40,8 +40,12 @@ describe("read-only provider card status refresh", () => {
     delete (gateway as any).readCardStatus;
     expect((await view()).cardStatusRead.state).toBe("unknown");
   });
+  it("refuses a status returned for another card", async () => {
+    const client = new AirwallexClient({ clientId: "", apiKey: "", bearerToken: "test", fetchImpl: (async () => new Response(JSON.stringify({ card_id: "other", card_status: "ACTIVE" }))) as any });
+    expect(await new LiveIssuingGateway(client).readCardStatus("card_1")).toBeUndefined();
+  });
   it.each([["ACTIVE", "ACTIVE"], ["INACTIVE", "FROZEN"], ["CLOSED", "CLOSED"], ["SUSPENDED", undefined]])("provider %s maps to %s without guessing", async (status, expected) => {
-    const client = new AirwallexClient({ clientId: "", apiKey: "", bearerToken: "test", fetchImpl: (async () => new Response(JSON.stringify({ card_status: status }))) as any });
+    const client = new AirwallexClient({ clientId: "", apiKey: "", bearerToken: "test", fetchImpl: (async () => new Response(JSON.stringify({ card_id: "card_1", card_status: status }))) as any });
     expect(await new LiveIssuingGateway(client).readCardStatus("card_1")).toBe(expected);
   });
 });

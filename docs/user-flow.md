@@ -1,14 +1,22 @@
-# Intent Pilot in real life - the user flow
+# IntentPay user flow: implemented demo and intended deployment
 
-Who does what, in what order, for a real company paying a real vendor.
+## Working sandbox flow
 
-1. **Setup (a person, once).** The finance lead connects the company's Airwallex account and sets the spending policy: the reserve floor, the cash forecast, allowed merchant categories and caps. This is the only configuration the agent ever gets - it is data, not instructions.
-2. **Purchase request (automatic).** The signed contract arrives from wherever it was signed - an in-app upload, a PDF from the deal room, a vendor email, or an e-sign webhook (DocuSign-style: the envelope-completed event fires, the agent fetches the signed document). Each intake path (`src/intake/intake.ts`) produces the same thing: the vendor's actual pricing text - "Acme Analytics Pro: $100 per month, or $984 per year billed upfront. 30 days notice. USD." - plus a provenance string for the audit log. That text is untrusted input, always, whichever door it came in.
-3. **Terms extraction (the agent).** A model reads the terms and proposes structured terms (prices, currency, notice, category). It works under the governance gate: numbers must come from the text or derive from it, citations must be real phrases, and an instruction buried in the terms is treated as data and flagged, never obeyed. If the terms are ambiguous or contradictory, the agent escalates instead of guessing.
-4. **The decision (deterministic code, not the model).** The policy engine weighs annual against monthly week by week against the forecast and the reserve floor, and returns the cadence with reasons and a reconsider date ("annual saves 18% but breaches the floor in week 7 - monthly; revisit at renewal"). The model can propose, but it never gets the last word.
-5. **Intent approval (a person).** The reviewer sees the decision, the evidence and the exact intent - cadence, amount cap, currency, categories - and approves with one click, or rejects with a required reason. The approval is HMAC-bound to the terms hash, the intent hash, the policy version, an expiry and a nonce. Change the deal afterwards and the approval stops matching it.
-6. **Card issued (the agent, on Airwallex).** A virtual card is created whose controls mirror the approved intent exactly: cap per transaction, currency allowlist, merchant categories. The approval is re-verified against the live intent at issue and consumed once.
-7. **Live authorization (the card rail).** The vendor charges the card at renewal. A charge inside the intent clears. Anything else - over cap, wrong currency, wrong category - declines, and the decline names the policy rule it broke. Even if everything upstream failed, the card cannot pay outside the approved intent.
-8. **Settlement and audit (the rail + code).** Clearing webhooks reconcile the charge. Every step - extraction verdict, decision, approval, issue, each authorization - sits in an append-only, hash-chained audit log. When the reconsider date arrives and the cash story has improved, the agent re-prompts the annual question with the new forecast.
+1. An operator pastes vendor pricing text and a labelled test forecast into the console. Vendor text is untrusted data, not instructions. Forecast balances are supplied scenario inputs, not a bank-derived forecast.
+2. A model proposes structured terms. Schema, citation, no-new-facts and policy checks accept or refuse the proposal. Ambiguous terms escalate rather than silently becoming an approval.
+3. Deterministic policy compares monthly and annual options against the reserve floor and explains its choice. A reconsider date is a decision field, not evidence that a scheduler will act on it.
+4. A reviewer approves the exact intent. The approval binds the terms, intent, policy version, expiry and single-use nonce, with a local approver signature. Today's localhost demo used a demo reviewer. That is not production identity proof.
+5. After approval, the execution agent can issue the constrained card and execute one purchase through typed, audited tools. It cannot approve itself, choose a different amount or weaken controls.
+6. Airwallex sandbox authorizations clear or decline under the card's controls. The 3 November run demonstrated a $200 purchase, terms changing to $220, old-card freeze and CARD_INACTIVE decline, stale-approval refusal, fresh approval and a $220 replacement purchase.
+7. The console reads transaction history and current provider card status. Status reads include timestamps; failed or unknown status reads say UNKNOWN. Refresh provider reads takes a new snapshot without initiating a purchase. The displayed controls describe the approved issuance controls, not a fresh read of every provider control.
+8. Notifications are preview-only by default. Gmail is an implemented transport with earlier approved self-addressed proof, not permission to send new messages.
 
-The split that makes it safe: the model reads and proposes; deterministic code decides; a person approves; the card enforces. No single layer can move money on its own.
+## Important boundaries
+
+- The run used synthetic vendor terms and cash forecasts, a real model, and real sandbox API calls. No production money or real merchant acceptance was proven.
+- The sandbox capture/ledger reports AIRPRO_TX_GENERATOR / MCC7531 rather than the requested vendor/MCC5734. This artifact is preserved, not rewritten as a merchant charge.
+- Console intake is a working paste-text flow. PDF, email and e-sign adapters have code and tests; do not describe them as deployed automatic document ingestion without a connected-source proof.
+- Webhook verification and Visa-shaped adapters have fixture tests. They are not proof of production clearing-event delivery, settlement, or a live Visa integration.
+- A reconsider date does not schedule autonomous renewal or forecast refresh. Those deployment workflows remain unproven.
+- Google OIDC, roles and fail-closed checks are implemented. The current Cloud Shell preview sign-in has a redirect mismatch; localhost demo-token evidence does not prove that sign-in route.
+- Production hosting, access, external security review, operational backups and live recovery need separate setup and verification. See PRODUCTION.md and RECOVERY.md.

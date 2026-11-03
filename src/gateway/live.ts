@@ -129,6 +129,7 @@ export class LiveIssuingGateway implements IssuingGateway {
 
   async readCardStatus(cardId: string): Promise<Card["status"] | undefined> {
     const j = await this.client.getCard(cardId);
+    if ((j.card_id ?? j.id) !== cardId) return undefined;
     // Only documented states establish current status. Unknown is not "frozen".
     return j.card_status === "ACTIVE" ? "ACTIVE" : j.card_status === "INACTIVE" ? "FROZEN" : j.card_status === "CLOSED" ? "CLOSED" : undefined;
   }

@@ -35,7 +35,7 @@ More diagrams — intent lifecycle, approval binding, the governance gate, the I
 
 ## The model layer (optional)
 
-**The model proposes. The gate decides.** The model gets two typed tools: `read_terms` (read only) and `propose_terms` (a proposal, nothing more). There is no tool that approves, issues or charges anything. Vendor terms are wrapped in `<vendor_terms>` and treated as data — an instruction inside them cannot change the outcome.
+**The model proposes. The gate decides.** The model gets two typed tools: `read_terms` (read only) and `propose_terms` (a proposal, nothing more). These are extraction tools only. The separate execution agent has audited issue-card and purchase tools, gated by an existing approval; it cannot approve its own intent. Vendor terms are wrapped in `<vendor_terms>` and treated as data — an instruction inside them cannot change the outcome.
 
 Every proposal passes `gate()`: schema validation, no-new-facts guardrails, a weighted rubric where code does the arithmetic, and reasoning checks. A proposal is accepted only when it agrees with the deterministic policy decision, or when it asks for a person. Rejections change nothing and are audited. Details: [docs/model-governance.md](docs/model-governance.md).
 
@@ -61,13 +61,13 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
 ## Verify
 
 ```bash
-npm test        # 481 tests
+npm test        # 494 tests
 npm run evals   # 58 deterministic scenarios, writes evals/RESULTS.md
 npm run smoke   # end-to-end flow in one process
 npm run typecheck
 ```
 
-- **481 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
+- **494 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
 - **58 deterministic eval scenarios** — policy boundaries, fail-closed inputs, card-control declines, scripted model proposals through the governance gate ([evals/RESULTS.md](evals/RESULTS.md)).
 
 ## Proven live
@@ -80,6 +80,8 @@ npm run typecheck
 - **Changed-deal proof, Airwallex sandbox (2026-10-21):** a person approved a $100/month intent; the issued card cleared a $100 in-policy purchase. The deal then changed to $90: the old approval was invalidated, the old card frozen (independent read-back INACTIVE), re-use of the stale approval refused with HTTP 409, and the previously allowed $100 purchase declined at the card with CARD_INACTIVE. A fresh $90 approval issued a new card and cleared $90. Every step receipted; card and transaction IDs reconcile against the sandbox dashboard. Receipts (audit extracts, response records, captures) are kept in the owner's private Drive, evidence file 1TOcFy0aY4WYbNkrYwCbmOhy2MPY7v35x. Harness: scripts/changed-deal-proof.ts (typed human confirmations, exclusive run folders, no automatic retry).
 
 ## Honest limits
+
+- Case views read current provider card status without changing it, with a timestamp; missing, unknown or failed reads are labelled UNKNOWN. Refresh provider reads takes a new snapshot, not a purchase. Issuance controls are historical approved controls, not a claim that every control was freshly re-read.
 
 - Policy and approval checks live in deterministic code. The extraction model proposes terms; the execution agent can issue a card and execute one purchase only after a valid approval, through audited typed tools. It cannot choose amounts or weaken card controls.
 - The console supports authenticated sign-in (Google OIDC) with enrolled roles - approver, viewer, operator; unlisted users are denied by default - exercised as the approver session in the 27 Oct 2026 sandbox run. Approval signatures still come from a console-local ed25519 key (generated per install, persisted in the gitignored state file), and card creation verifies that signature, so a foreign or stripped approval is refused. The key proves local integrity (this install's key signed the approval), not by itself a human's identity: that binding comes from the authenticated session, and production binds approvals to SSO-managed identity.
