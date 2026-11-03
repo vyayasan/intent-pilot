@@ -26,7 +26,7 @@ export function toCardTransaction(j: any): CardTransaction {
     : (STATUS_MAP[rawStatus] ?? "PENDING");
   return {
     // One id space: list items link to the authorization's card_transaction_id via card_transaction_data.
-    id: j.id ?? j.card_transaction_id ?? j.card_transaction_data?.card_transaction_id ?? j.transaction_id,
+    id: j.card_transaction_data?.card_transaction_id ?? j.card_transaction_id ?? j.id ?? j.transaction_id,
     cardId: j.card_id ?? "",
     amount: Number(j.amount ?? j.transaction_amount), currency: String(j.currency ?? j.transaction_currency ?? ""),
     merchant: j.merchant?.name ?? j.merchant_info ?? j.merchant_name ?? undefined,
@@ -204,8 +204,13 @@ export class LiveIssuingGateway implements IssuingGateway {
   async refund(transactionId: string, requestId?: string) { return toCardTransaction(await this.client.simRefund({ transaction_id: transactionId }, requestId)); }
 
   async listTransactions(cardId?: string): Promise<CardTransaction[]> {
-    const j = await this.client.listTransactions({ cardId });
-    return (j.items ?? []).map(toCardTransaction);
+    const out: CardTransaction[] = [];
+    for (let page = 0; page < 100; page++) {
+      const j = await this.client.listTransactions({ cardId, size: 100, page });
+      out.push(...(j.items ?? []).map(toCardTransaction));
+      if (!j.has_more) return out;
+    }
+    throw new Error("provider transaction listing exceeds 100 pages - refusing partial ledger");
   }
   async getTransaction(id: string) {
     return (await this.listTransactions()).find((t) => t.id === id);

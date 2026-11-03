@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AirwallexClient } from "../src/gateway/airwallex.js";
-import { toCardTransaction } from "../src/gateway/live.js";
+import { LiveIssuingGateway, toCardTransaction } from "../src/gateway/live.js";
 
 const mkClient = (responses: Response[], log: string[] = []) => {
   let i = 0;
@@ -70,3 +70,24 @@ describe("live status mapping", () => {
     expect(t.status).toBe("CLEARING");
   });
 });
+
+ describe("transaction ledger paging", () => {
+  it("uses page_size/page_num and finds a simulation id beyond the first page", async () => {
+    const urls: string[] = [];
+    const c = new AirwallexClient({clientId: "", apiKey: "", bearerToken: "test", fetchImpl: (async (url: any) => {
+      urls.push(String(url));
+      const page = new URL(url).searchParams.get("page_num");
+      return new Response(JSON.stringify(page === "0" ? {items: [{id: "old"}],has_more:true} : {items: [{id:"ledger-id",card_transaction_data:{card_transaction_id:"auth-id"},transaction_type:"CLEARING",status:"APPROVED"}],has_more:false}));
+    }) as any});
+    const t = await new LiveIssuingGateway(c).getTransaction("auth-id");
+    expect(t?.id).toBe("auth-id");
+    expect(t?.status).toBe("CLEARING");
+    expect(urls).toHaveLength(2);
+    expect(urls[0]).toContain("page_size=100&page_num=0");
+    expect(urls[1]).toContain("page_num=1");
+  });
+  it("does not turn a failed later page into an absent transaction", async () => {
+    const c = {listTransactions: async ({page}:any) => {if(page) throw new Error("ledger page offline");return {items:[],has_more:true};}};
+    await expect(new LiveIssuingGateway(c as any).getTransaction("missing")).rejects.toThrow("ledger page offline");
+  });
+ });

@@ -91,10 +91,10 @@ export class AirwallexClient {
   updateCard(cardId: string, body: Record<string, unknown>, requestId?: string) {
     return this.call<any>("POST", `/api/v1/issuing/cards/${encodeURIComponent(cardId)}/update`, body, requestId);
   }
-  listTransactions(opts: { cardId?: string; size?: number } = {}) {
-    const q = new URLSearchParams({ size: String(opts.size ?? 100) });
+  listTransactions(opts: { cardId?: string; size?: number; page?: number } = {}) {
+    const q = new URLSearchParams({ page_size: String(opts.size ?? 100), page_num: String(opts.page ?? 0) });
     if (opts.cardId) q.set("card_id", opts.cardId);
-    return this.call<{ items: any[] }>("GET", `/api/v1/issuing/transactions?${q}`);
+    return this.call<{ items: any[]; has_more?: boolean }>("GET", `/api/v1/issuing/transactions?${q}`);
   }
 
   // Sandbox-only simulators, kept behind this one client as the guide advises.
