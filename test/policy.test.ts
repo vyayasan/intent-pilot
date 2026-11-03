@@ -31,6 +31,14 @@ describe("cadence decision", () => {
     expect(d.reasons[0]).toContain("18%");
   });
 
+  it.each([1200, 1300])("keeps monthly when annual costs %s and has no price advantage", (annualPrice) => {
+    const d = decide({...terms,annualPrice},{weeklyBalances:Array(12).fill(3000),reserveFloor:500,breachWeek:null},DEFAULT_POLICY,now);
+    expect(d.cadence).toBe("monthly");
+  });
+  it("chooses monthly on equal annual total when both fit", () => {
+    const d = decide({...terms,monthlyPrice:100,annualPrice:1200},{weeklyBalances:[2000,2000,2000,2000,2000,2000,2000,2000,2000,2000,2000,2000],reserveFloor:500,breachWeek:null},DEFAULT_POLICY,now);
+    expect(d.cadence).toBe("monthly");
+  });
   it("sets a reconsider date when the cash later absorbs the annual price", () => {
     const recovering = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1400, 1500, 1600, 1700, 1800];
     const d = decide(terms, { weeklyBalances: recovering, reserveFloor: floor, breachWeek: null }, DEFAULT_POLICY, now);

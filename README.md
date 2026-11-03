@@ -61,13 +61,13 @@ Open http://localhost:3000. Review a case, approve the intent, create the card, 
 ## Verify
 
 ```bash
-npm test        # 494 tests
+npm test        # 506 tests
 npm run evals   # 58 deterministic scenarios, writes evals/RESULTS.md
 npm run smoke   # end-to-end flow in one process
 npm run typecheck
 ```
 
-- **494 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
+- **506 automated tests** — policy math, intent hashing, bound approvals, the card state machine, simulated and live gateway mappings, TAP/webhook verification, the console, the governance gate, and cross-layer redteam attacks (stolen approvals, double-submits, CSRF, double-spend retries, illegal transitions).
 - **58 deterministic eval scenarios** — policy boundaries, fail-closed inputs, card-control declines, scripted model proposals through the governance gate ([evals/RESULTS.md](evals/RESULTS.md)).
 
 ## Proven live

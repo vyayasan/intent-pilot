@@ -1,6 +1,6 @@
 # Kit 2 Eval Results
 
-Run: 2026-11-02T13:48:14.402Z (fixture clock 2026-10-06T12:00:00.000Z)
+Run: 2026-11-03T20:31:12.699Z (fixture clock 2026-10-06T12:00:00.000Z)
 
 **58/58 scenarios pass.** Deterministic fixtures only; no live model, no live API.
 
@@ -17,7 +17,7 @@ Run: 2026-11-02T13:48:14.402Z (fixture clock 2026-10-06T12:00:00.000Z)
 | rich-annual | annual | annual | yes |
 | poor-escalate | ESCALATE | ESCALATE | yes |
 | recovering-reconsider | monthly | monthly | yes |
-| no-discount-annual | annual | annual | yes |
+| no-discount-annual | monthly | monthly | yes |
 | gbp-annual-win | annual | annual | yes |
 | per-seat-total | annual | annual | yes |
 | monthly-only-offer | monthly | monthly | yes |
@@ -131,7 +131,7 @@ Run: 2026-11-02T13:48:14.402Z (fixture clock 2026-10-06T12:00:00.000Z)
 - **breach-at-floor-boundary** (Balance equal to the floor is not a breach): 1400 - 900 = 500 equals the floor; only a drop below breaches.
 - **breach-week-one** (Annual upfront hit breaches immediately): Week one cannot absorb the annual price even though later weeks can.
 - **short-forecast** (Projection covers only 4 weeks): A shorter projection is used as-is; the horizon is the smaller of policy and projection, and nothing is invented beyond it.
-- **no-discount-annual** (Annual price is not a discount): Annual equals twelve monthly payments; savings are 0% but cash is healthy, so the cheaper-or-equal cadence still wins. A guardrail warning flags the oddity.
+- **no-discount-annual** (Annual price is not a discount): Annual equals twelve monthly payments and has no price advantage; monthly preserves cash flexibility when both cadences fit.
 - **gbp-annual-win** (GBP vendor, healthy cash: annual wins): The math is currency-agnostic once the code is valid; GBP terms price out the same way.
 - **per-seat-total** (Per-seat total as a monthly price): A 250/month 2400/year deal saves 20% and clears the floor; the math does not care how the price was built.
 - **zero-monthly** (Free trial bait: zero monthly price): A zero price is a trial or a data error; a person must read what the price becomes.

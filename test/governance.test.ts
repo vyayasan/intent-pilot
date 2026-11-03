@@ -45,6 +45,16 @@ describe("guardrails", () => {
     expect(checkGuardrails({ ...goodProposal, extracted_terms: { ...goodProposal.extracted_terms, currency: "EUR" } }, kase).violations.length).toBeGreaterThan(0);
     expect(checkGuardrails({ ...goodProposal, extracted_terms: { ...goodProposal.extracted_terms, category: "travel" } }, kase).violations.length).toBeGreaterThan(0);
   });
+  it("does not ground extracted prices in numeric substrings or forecast numbers", () => {
+    for (const monthlyPrice of [10, 500]) {
+      const p = { ...goodProposal, extracted_terms: { ...goodProposal.extracted_terms, monthlyPrice } };
+      expect(checkGuardrails(p, kase, polCtx).violations.some(v => v.detail.includes("extracted numbers"))).toBe(true);
+    }
+  });
+  it("does not ground category or currency in word fragments", () => {
+    const c = { ...kase, rawTerms: kase.rawTerms.replace("USD", "USDX").replace("software", "softwarehouse") };
+    expect(checkGuardrails(goodProposal,c,polCtx).violations.filter(v=>v.check==="no_new_facts").length).toBeGreaterThanOrEqual(2);
+  });
   it("rejects certainty language and links", () => {
     expect(checkGuardrails({ ...goodProposal, rationale: "This is risk-free and will definitely save money." }, kase).violations.map((x) => x.check)).toContain("bounded_language");
     expect(checkGuardrails({ ...goodProposal, rationale: "See https://vendor.example for proof." }, kase).violations.map((x) => x.check)).toContain("no_links");

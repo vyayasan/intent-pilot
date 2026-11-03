@@ -10,9 +10,9 @@ export const PolicySchema = z.object({
 export type Policy = z.infer<typeof PolicySchema>;
 
 export const DEFAULT_POLICY: Policy = PolicySchema.parse({
-  // 2026-10-27.1: single-cadence pricing (monthly-only or annual-only) is complete data and is
-  // evaluated on its own merits; escalation is reserved for no price, malformed values, and breaches.
-  version: "2026-10-27.1", forecastWeeks: 12, billingEveryWeeks: 4,
+  // 2026-11-03.1: annual needs a price advantage when both cadences fit; equal or more
+  // expensive annual pricing no longer commits cash upfront without a benefit.
+  version: "2026-11-03.1", forecastWeeks: 12, billingEveryWeeks: 4,
 });
 
 export interface CadenceDecision {
@@ -115,6 +115,9 @@ export function decide(terms: Terms, forecast: CashForecast, pol: Policy, now = 
       rw == null ? "cash never absorbs the annual price inside the forecast: revisit at renewal" : `cash can absorb the annual price from week ${rw + 1}: reconsider on ${reconsiderAt}`,
     ], { savingsPct, annualBreachWeek, monthlyBreachWeek, reconsiderAt });
   }
+
+  if (monthlyBreachWeek == null && terms.annualPrice >= yearlyMonthly)
+    return out("monthly", ["annual has no price advantage over twelve monthly payments; monthly preserves cash flexibility"], { savingsPct, annualBreachWeek, monthlyBreachWeek });
 
   return out("annual", [`annual saves ${savingsPct}% and never breaches the reserve floor`], { savingsPct, annualBreachWeek, monthlyBreachWeek });
 }

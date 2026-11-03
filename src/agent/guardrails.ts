@@ -60,12 +60,14 @@ export function checkGuardrails(p: Proposal, c: PurchaseCase, ctx?: PolicyContex
   // 1. No new facts: every extracted number must appear in the vendor terms text.
   const t = p.extracted_terms;
   const extracted = [t.monthlyPrice, t.annualPrice, t.noticeDays].filter((n): n is number => n != null).map(String);
-  const missing = extracted.filter((n) => !hay.includes(n.replace(/\.0+$/, "")));
+  const termNumbers = new Set(numbersIn(c.rawTerms).map(Number));
+  const missing = extracted.filter((n) => !termNumbers.has(Number(n)));
   if (missing.length) v.push({ check: "no_new_facts", detail: `extracted numbers not found in the terms text: ${missing.slice(0, 5).join(", ")}` });
 
   // 2. The currency must appear in the text, and the category must be a plain word present in it.
-  if (!hay.includes(t.currency.toLowerCase())) v.push({ check: "no_new_facts", detail: `currency ${t.currency} does not appear in the terms text` });
-  if (!/^[a-z][a-z-]{2,23}$/.test(t.category.toLowerCase()) || !hay.includes(t.category.toLowerCase()))
+  const termWords = new Set(c.rawTerms.toLowerCase().match(/[a-z]+(?:-[a-z]+)*/g) ?? []);
+  if (!termWords.has(t.currency.toLowerCase())) v.push({ check: "no_new_facts", detail: `currency ${t.currency} does not appear in the terms text` });
+  if (!/^[a-z][a-z-]{2,23}$/.test(t.category.toLowerCase()) || !termWords.has(t.category.toLowerCase()))
     v.push({ check: "no_new_facts", detail: `category "${t.category.slice(0, 24)}" does not appear in the terms text` });
 
   // 3. Numbers in the rationale must come from the terms text, or be plain arithmetic derived from it.

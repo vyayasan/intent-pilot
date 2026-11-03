@@ -18,5 +18,5 @@
 - Console intake is a working paste-text flow. PDF, email and e-sign adapters have code and tests; do not describe them as deployed automatic document ingestion without a connected-source proof.
 - Webhook verification and Visa-shaped adapters have fixture tests. They are not proof of production clearing-event delivery, settlement, or a live Visa integration.
 - A reconsider date does not schedule autonomous renewal or forecast refresh. Those deployment workflows remain unproven.
-- Google OIDC, roles and fail-closed checks are implemented. The current Cloud Shell preview sign-in has a redirect mismatch; localhost demo-token evidence does not prove that sign-in route.
+- Google OIDC, roles and fail-closed checks are implemented. Google sign-in was verified on 3 November using an approved temporary Cloud Shell callback, then the callback was removed. It is not a permanent remote sign-in endpoint; localhost demo-token purchase evidence is separate.
 - Production hosting, access, external security review, operational backups and live recovery need separate setup and verification. See PRODUCTION.md and RECOVERY.md.
