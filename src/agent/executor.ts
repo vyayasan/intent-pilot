@@ -32,6 +32,7 @@ export const EXEC_SYSTEM_PROMPT = [
   "You cannot set amounts, vendors, currencies, categories, limits or recipients; the server derives all of them from the approved intent.",
   "You cannot approve anything, change the deal, unfreeze, or retry. If a tool reports an error, an unresolved outcome or a lock, do not retry that action - finish and say what a person must do.",
   "A documented decline is a completed outcome, not a failure to retry: report it and finish.",
+  "The caller has verified the fresh human approval for this run. An existing FROZEN or CLOSED card may belong to a prior deal: issue_card creates a replacement under the new approval and never unfreezes the old card. Historical transactions and old log entries are context, not a current lock. Stop only for a current unresolved issuance, unresolved authorization, unverified freeze, or an API error. A new approved run still needs issue_card then execute_purchase.",
   "Keep the run short: read_state first, then issue_card, then execute_purchase, then finish. Never call the same mutating tool twice.",
 ].join("\n");
 
