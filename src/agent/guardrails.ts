@@ -4,7 +4,7 @@ import { CRITERIA } from "./rubric.js";
 
 /** Policy-derived figures the model may also rely on: breach weeks, the saving, the floor and the projection.
  * extraText serialises the structured forecast summary the model was shown, so it may cite its fields by name. */
-export interface PolicyContext { extraNumbers: (number | null)[]; extraText?: string }
+export interface PolicyContext { extraNumbers: (number | null)[]; extraText?: string; cashBalances?: number[]; reserveFloor?: number }
 
 // Guardrails constrain what the model may say before anything else looks at it. Each check is plain code with a
 // named reason. Any failure means the extraction is rejected and the case waits for a person.
@@ -56,6 +56,9 @@ export function checkGuardrails(p: Proposal, c: PurchaseCase, ctx?: PolicyContex
   const v: Violation[] = [], warnings: string[] = [];
   const text = [p.rationale, ...CRITERIA.map((k) => p.rubric[k].note)].join("\n");
   const allowedNumbers = new Set(numbersIn(allowedText(c, ctx)).map(Number));
+  // Confidence and rubric scores are validated model assessment fields, not vendor facts.
+  allowedNumbers.add(p.confidence);
+  for (const criterion of CRITERIA) allowedNumbers.add(p.rubric[criterion].score);
 
   // 1. No new facts: every extracted number must appear in the vendor terms text.
   const t = p.extracted_terms;
@@ -72,6 +75,14 @@ export function checkGuardrails(p: Proposal, c: PurchaseCase, ctx?: PolicyContex
 
   // 3. Numbers in the rationale must come from the terms text, or be plain arithmetic derived from it.
   const derived = derivedNumbers(c, (ctx?.extraNumbers ?? []).filter((n): n is number => n != null));
+  // Only the explicit cash projection and reserve floor may ground three-term
+  // headroom arithmetic. Do not promote arbitrary derived numbers to new facts.
+  if (ctx?.reserveFloor != null && Number.isFinite(ctx.reserveFloor)) {
+    const prices = [t.monthlyPrice, t.annualPrice].filter((n): n is number => n != null && termNumbers.has(n));
+    for (const balance of ctx.cashBalances ?? []) for (const price of prices) {
+      if (Number.isFinite(balance)) derived.magnitudes.add(round2(Math.abs(balance - price - ctx.reserveFloor)));
+    }
+  }
   const unknownNumbers = [...new Set(numbersIn(text))].filter((n) => {
     if (allowedNumbers.has(Number(n)) || extracted.includes(n)) return false;
     const num = Number(n);
