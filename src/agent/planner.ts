@@ -97,7 +97,7 @@ export function gate(p: Proposal, c: PurchaseCase, forecast: { weeklyBalances: n
   const annualBreach = b0 == null ? null : b0 + 1; // 1-based, matching CadenceDecision
 
   // Layer 1: guardrails. Layer 2: rubric. Layer 3: reasoning checks. Then policy compares cadences.
-  const g = checkGuardrails(p, c, { extraNumbers: [pol.annualBreachWeek, pol.monthlyBreachWeek, pol.savingsPct, forecast.reserveFloor, ...forecast.weeklyBalances],
+  const g = checkGuardrails(p, c, { cashBalances: forecast.weeklyBalances, reserveFloor: forecast.reserveFloor, extraNumbers: [pol.annualBreachWeek, pol.monthlyBreachWeek, pol.savingsPct, forecast.reserveFloor, ...forecast.weeklyBalances],
     extraText: JSON.stringify({ reserve_floor: forecast.reserveFloor, horizon_weeks: forecast.weeklyBalances.length }) });
   gov.guardrailViolations = g.violations; gov.warnings = g.warnings;
   if (g.violations.length) return reject(...g.violations.map((x) => `guardrail ${x.check}: ${x.detail}`));
