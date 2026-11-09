@@ -68,6 +68,19 @@ describe("guardrails", () => {
     expect(v.find((x) => x.check === "no_new_facts")?.detail).toContain("9000");
     expect(v.find((x) => x.check === "no_new_facts")?.detail).toContain("97");
   });
+  it("allows grounded three-term cash headroom without a general arithmetic closure", () => {
+    const p = { ...goodProposal, rationale: "1500 - 984 - 500 leaves a cash headroom of 16." };
+    const ctx = { extraNumbers: [1500,500], cashBalances: [1500], reserveFloor: 500 };
+    expect(checkGuardrails(p,kase,ctx).violations).toEqual([]);
+    expect(checkGuardrails(p,kase,{extraNumbers:[1500,500]}).violations.some(v=>v.detail.includes("16"))).toBe(true);
+    expect(checkGuardrails({...p,rationale:"Headroom is 17."},kase,ctx).violations.some(v=>v.detail.includes("17"))).toBe(true);
+    const invented = {...p,extracted_terms:{...p.extracted_terms,annualPrice:16}};
+    expect(checkGuardrails(invented,kase,ctx).violations.some(v=>v.detail.includes("extracted numbers"))).toBe(true);
+  });
+  it("allows the model to state its own validated confidence without inventing vendor facts", () => {
+    expect(checkGuardrails({...goodProposal,rationale:"Confidence is 0.7."},kase).violations).toEqual([]);
+    expect(checkGuardrails({...goodProposal,rationale:"Confidence is 0.91."},kase).violations.some(v=>v.detail.includes("0.91"))).toBe(true);
+  });
   it("does not ground a rationale number in a substring of a source number", () => {
     const p = {...goodProposal,rationale:"The vendor has 98 customers."};
     expect(checkGuardrails(p,kase).violations.some(v=>v.detail.includes("rationale carries numbers"))).toBe(true);
