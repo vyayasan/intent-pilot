@@ -61,7 +61,7 @@ The supported entry point is `npm start`. It works without credentials in the la
 ## Verify
 
 ```bash
-npm test        # 507 tests
+npm test        # 509 tests
 npm run evals   # 58 deterministic scenarios, writes evals/RESULTS.md
 npm run smoke   # end-to-end flow in one process
 npm run typecheck
