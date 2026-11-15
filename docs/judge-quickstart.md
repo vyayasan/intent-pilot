@@ -33,7 +33,7 @@ Open the loopback URL printed by the server. No API keys are required. This mode
 
 ## Evidence that needs a configured service
 
-The unchanged v6 video shows recorded Salesforce/Claude/Airwallex sandbox work. It predates the new read-only evidence inspector. It does not show the inspector or prove a fresh run of this candidate. See `cases.md` for the recorded $400-to-$480 case and its limits, and `demo-map.md` for the exact recording-to-source map.
+The v7 video combines labelled recorded Salesforce/Claude/Airwallex sandbox footage from the earlier accepted demo with a newly recorded walkthrough of this build's local simulator, including the read-only evidence inspector. The recorded sections do not prove a fresh provider run of this candidate, and the inspector section shows the simulator only. See `cases.md` for the recorded $400-to-$480 case and its limits, and `demo-map.md` for the exact recording-to-source map.
 
 The separate read-only MCP prototype uses a different earlier $900 case in a local official example host. It is not a native Claude-host demonstration and cannot approve or pay.
 
