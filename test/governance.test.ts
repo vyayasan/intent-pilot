@@ -77,6 +77,15 @@ describe("guardrails", () => {
     const invented = {...p,extracted_terms:{...p.extracted_terms,annualPrice:16}};
     expect(checkGuardrails(invented,kase,ctx).violations.some(v=>v.detail.includes("extracted numbers"))).toBe(true);
   });
+  it("allows only the policy-grounded cumulative monthly forecast arithmetic", () => {
+    const c={...kase,rawTerms:"Acme software: 50 USD monthly. Annual billing not offered. 30 days notice."};
+    const p={...goodProposal,extracted_terms:{monthlyPrice:50,annualPrice:null,currency:"USD",category:"software",noticeDays:30},rationale:"Monthly leaves 4850 after three charges.",cited_facts:[],rubric:Object.fromEntries(Object.entries(goodProposal.rubric).map(([k,v])=>[k,{...v,cites:[],note:"terms reviewed"}]))} as unknown as Proposal;
+    const ctx={extraNumbers:[5000,500],cashBalances:Array(12).fill(5000),reserveFloor:500};
+    expect(checkGuardrails(p,c,ctx).violations).toEqual([]);
+    expect(checkGuardrails({...p,rationale:"Balance is 4851."},c,ctx).violations.some(x=>x.detail.includes("4851"))).toBe(true);
+    expect(checkGuardrails(p,c,{extraNumbers:[5000,500]}).violations.some(x=>x.detail.includes("4850"))).toBe(true);
+    expect(checkGuardrails({...p,extracted_terms:{...p.extracted_terms,monthlyPrice:4850}},c,ctx).violations.some(x=>x.detail.includes("extracted numbers"))).toBe(true);
+  });
   it("allows the model to state its own validated confidence without inventing vendor facts", () => {
     expect(checkGuardrails({...goodProposal,rationale:"Confidence is 0.7."},kase).violations).toEqual([]);
     expect(checkGuardrails({...goodProposal,rationale:"Confidence is 0.91."},kase).violations.some(v=>v.detail.includes("0.91"))).toBe(true);
