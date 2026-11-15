@@ -116,8 +116,8 @@ describe("console api", () => {
   it("records a rejection with its reason and never creates a card", async () => {
     const { post, audit } = setup();
     await post("/api/reject", { caseId: "case_acme", reason: "not in budget this quarter" });
-    const r = await post("/api/approve", { caseId: "case_acme" }); // approve is still possible later; the rejection is recorded
-    expect(r.status).toBe(200);
+    const r = await post("/api/approve", { caseId: "case_acme" }); // rejection cannot implicitly reopen a purchase
+    expect(r.status).toBe(409);
     expect(audit.list().some((e) => e.kind === "recommendation_rejected")).toBe(true);
   });
 
@@ -321,6 +321,21 @@ describe("authorization outcome handling", () => {
     expect(r.status).toBe(200);
     expect((await r.json()).transaction.status).toBe("CLEARING");
     expect(audit.list().some((e) => e.kind === "authorization_cleared")).toBe(true);
+  });
+
+  it("clearing audit and notification use captured merchant and amount, not the authorization scenario", async () => {
+    const base = { id: "txn_final", cardId: "card-1", currency: "USD", transactedAt: NOW.toISOString() };
+    const { api, audit } = mk({
+      async authorize() { return { ...base, amount: 100, merchant: "Scenario label", status: "PENDING" }; },
+      async capture() { return { ...base, amount: -99, merchant: "AIRPRO_TX_GENERATOR", status: "CLEARING" }; },
+    });
+    expect((await drive(api)).status).toBe(200);
+    const entry = audit.list().find(e => e.kind === "authorization_cleared");
+    expect(entry?.detail).toMatchObject({ amount: 99, currency: "USD", providerMerchant: "AIRPRO_TX_GENERATOR" });
+    const view = await (await api(new Request("http://localhost:3000/api/cases"))).json();
+    const note = view.notifications.find((n: {kind: string}) => n.kind === "purchase_cleared");
+    expect(note.body).toContain("99 USD");
+    expect(view.cases[0].log.some((line: string) => line.includes("99 USD at AIRPRO_TX_GENERATOR"))).toBe(true);
   });
 
   it("reviewer round-5: a FAILED capture payload is a definitive decline, never a clearing", async () => {
