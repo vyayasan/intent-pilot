@@ -1,0 +1,59 @@
+{
+  "case": {
+    "id": "case_annual-only-live-test_0f9115",
+    "vendor": "Annual-only live test",
+    "rawTerms": "Annual-only live test synthetic offer:500 USD per year upfront. Monthly billing is not offered. Category software.30 days notice.",
+    "sourceNote": "Explicit synthetic software pricing for live API E2E test"
+  },
+  "proposal": {
+    "cadence": "annual",
+    "confidence": 0.7,
+    "rationale": "The terms give 500 USD per year upfront and say \"Monthly billing is not offered\", so annual is the only option. Floor check: the lowest weekly balance is 1500 and 1500 - 500 = 1000. That is above the reserve_floor of 500 in every one of the horizon_weeks (12), so paying annually stays inside the floor. There is no monthly price to compare against. Notice period is 30 days and the category is software. Vendor credibility is hard to judge from one line that calls itself a \"synthetic offer\", so confidence is capped. A person should still confirm before approving.",
+    "extracted_terms": {
+      "monthlyPrice": null,
+      "annualPrice": 500,
+      "currency": "USD",
+      "category": "software",
+      "noticeDays": 30
+    },
+    "cited_facts": [
+      "500 USD per year upfront",
+      "Monthly billing is not offered",
+      "Category software",
+      "30 days notice"
+    ],
+    "rubric": {
+      "cash_fit": {
+        "score": 4,
+        "cites": [
+          "500 USD per year upfront"
+        ],
+        "note": "Lowest balance 1500 minus 500 leaves 1000, above the reserve floor of 500. Annual is the only option."
+      },
+      "terms_clarity": {
+        "score": 4,
+        "cites": [
+          "500 USD per year upfront",
+          "30 days notice",
+          "Category software"
+        ],
+        "note": "Price, currency, category and notice are explicit. Monthly price is absent because it is not offered."
+      },
+      "vendor_signals": {
+        "score": 3,
+        "cites": [
+          "synthetic offer"
+        ],
+        "note": "Very short text that calls itself a synthetic offer, so there is little to judge credibility on."
+      },
+      "policy_fit": {
+        "score": 4,
+        "cites": [
+          "500 USD per year upfront",
+          "Monthly billing is not offered"
+        ],
+        "note": "Stays above the reserve floor, but the deal is annual-only with no monthly alternative."
+      }
+    }
+  }
+}
