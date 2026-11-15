@@ -1,6 +1,6 @@
 # Demo walkthrough
 
-The final v7 walkthrough, delivered 15 November 2026 (4:20.668, 1920x1080, H.264 + AAC), is hosted at a [restricted Google Drive link](https://drive.google.com/file/d/1aMHfN_lOMaFDrPk87eeayZOHKdEXkw1i/view).
+The final v7 walkthrough, delivered 15 November 2026 (4:20.668, 1920x1080, H.264 + AAC), is hosted as an [unlisted YouTube video](https://www.youtube.com/watch?v=pgW0L_SMQ4k) (backup player: [Instinct-hosted page, no sign-in](https://files.instinct.com/3j629gyddcfn-intentpay-final-demo-video)).
 
 SHA-256: `b412699b5d7f6c74686bf2e8cee083f18f6986aac07842ecc9fd85154a222354`.
 
