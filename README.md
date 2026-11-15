@@ -28,7 +28,7 @@ IntentPay connects three things that should agree: **the terms**, **the person's
 
 ## Run locally
 
-**Node.js 22.13+ and npm. No keys needed for the default simulator.** This repository is private; access is required. Clone it, or download and extract the source archive (Code -> Download ZIP), then install and run from the project root.
+**Node.js 22.13+ and npm. No keys needed for the default simulator.** This repository is public; no invitation is required. Clone it, or download and extract the source archive (Code -> Download ZIP), then install and run from the project root.
 
 ```bash
 git clone https://github.com/vyayasan/intent-pilot.git
