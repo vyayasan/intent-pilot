@@ -38,6 +38,7 @@ describe("console server hardening", () => {
       await fetch(`${url}/nope`, { headers: { host } })
     ]) {
       expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+      expect(res.headers.get("content-security-policy")).toContain("font-src 'self' data: https://fonts.gstatic.com");
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
       expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     }
