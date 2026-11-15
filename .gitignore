@@ -20,3 +20,12 @@ dist
 /console-state.json
 /console-state.db
 /audit.jsonl
+
+# Separate MCP build output and local operator evidence
+/mcp/evidence/
+/mcp/host/dist/
+/mcp/dist/
+.env.*
+!.env.example
+/mcp/mcp-app.html
+/mcp/src/review.js
