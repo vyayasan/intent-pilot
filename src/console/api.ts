@@ -1,3 +1,5 @@
+import type {ContractSource,ContractSnapshot} from "../intake/salesforce.js";
+import { parseNotice, makeNoticeProposal, digest, type NoticeProposal } from "../intake/notice.js";
 import { ROLE_RANK, type AuthProvider, type Identity, type Role } from "./auth.js";
 import { openStateStore, type StateStore } from "./state.js";
 import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
@@ -46,6 +48,9 @@ export interface PendingAuthorization {
 
 // The console's case state: the purchase case plus where it is in the flow.
 export interface CaseState {
+  contractSource?: ContractSnapshot;
+  sourceInvalidated?: boolean;
+  noticeProposal?: NoticeProposal;
   kase: PurchaseCase;
   forecast: { weeklyBalances: number[]; reserveFloor: number };
   /** Where the forecast scenario came from. Always a labelled test input, never observed finances. */
@@ -89,6 +94,9 @@ const FreezeBody = z.object({ caseId: z.string() });
 const CloseCardBody = z.object({ caseId: z.string() });
 const ReconcileBody = z.object({ caseId: z.string(), manualConfirm: z.string().trim().min(8).max(500).optional() });
 const ChangeTermsBody = z.object({ caseId: z.string(), terms: ExtractedTermsSchema, rawTerms: z.string().trim().min(1).max(8000) });
+const NoticeBody = z.object({ caseId: z.string(), filename: z.string().min(1).max(160), content: z.string().min(1).max(8000) });
+const NoticeApplyBody = z.object({ caseId: z.string(), proposalId: z.string(), confirm: z.literal(true) });
+const noticeVersion = (c: CaseState) => digest(JSON.stringify({ terms: c.kase.terms, rawTerms: c.kase.rawTerms, intent: c.intent, card: c.card, forecast: c.forecast, reapproval: c.requiresReapproval, freeze: c.freezeState, pending: c.pendingAuthorization, unresolved: c.createCardUnresolved }));
 const ExtractBody = z.object({ caseId: z.string() });
 // Real case intake: the acceptance flow starts from actual vendor text, never seeded demo data.
 // weeklyBalances/reserveFloor are TEST SCENARIO INPUTS (labelled in the UI and case log), never
@@ -117,6 +125,9 @@ const ResolveRestoredBody = z.object({
 });
 
 export interface CaseView {
+  contractSource?: ContractSnapshot;
+  sourceInvalidated?: boolean;
+  noticeProposal?: NoticeProposal;
   kase: PurchaseCase;
   forecast: { weeklyBalances: number[]; reserveFloor: number };
   termsSource: string | null;
@@ -142,6 +153,7 @@ export interface CaseView {
 }
 
 export interface ConsoleApiOptions {
+  contractSource?: ContractSource;
   gateway?: IssuingGateway;
   /** Factory used on demo reset so a live console stays live; defaults to the simulator. */
   makeGateway?: () => IssuingGateway;
@@ -251,7 +263,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   // change the deal underneath an approval - cloning would hide that from the handler.
   let cases = options.seedCases ?? demoCases();
   // Email previews: the exact emails each workflow step WOULD send. No transport, nothing is sent.
-  let outbox = new Outbox(now);
+  let outbox = new Outbox(now, options.live ? "Airwallex sandbox simulation" : "Local simulator");
   const recipient = options.notificationRecipient ?? "sandi@vyayasan.com";
   const dispatcher = new NotificationDispatcher(() => outbox, options.emailTransport ?? null, now, (event, detail, caseId) => audit.append(event, detail, caseId));
 
@@ -350,6 +362,14 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   const tryGet = async (id: string) => { try { return await gateway.getTransaction?.(id); } catch { return undefined; } };
   // Gateways may be sync (sim) or async (live) - await both, undefined on any failure.
   const tryCall = async <T>(fn: () => T | Promise<T>): Promise<T | undefined> => { try { return await fn(); } catch { return undefined; } };
+  const checkContract = async(c:CaseState):Promise<string|null> => {
+    if(!c.contractSource)return null;
+    let error:string|undefined;
+    try{if(!options.contractSource)throw Error("Contract source is not configured");const fresh=await options.contractSource.read(c.contractSource.id);if(fresh.version!==c.contractSource.version||c.sourceInvalidated)error="Contract source changed; explicitly refresh into a new review. Prior approval is blocked";}catch{error="Contract source could not be verified; spending is blocked";}
+    if(error){c.sourceInvalidated=true;c.requiresReapproval=true;if(c.card&&c.card.status!=="CLOSED"){
+      c.freezeState="pending";persist();try{const frozen=await gateway.freezeCard(c.card.id,`${c.card.id}:contract-stale`);if(frozen.status!=="FROZEN")throw Error("freeze unverified");c.card={...c.card,status:"FROZEN"};c.freezeState="verified";}catch{c.freezeState="unknown";}
+    }c.log.push(error);audit.append("refused",{reason:error},c.kase.id);persist();return error;}return null;
+  };
   const view = async (c: CaseState): Promise<CaseView> => {
     // Status is a fresh read, separate from saved issuance history. Never mutate provider
     // state or overwrite local workflow locks from a read-only case view.
@@ -388,6 +408,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       : Object.keys(c.lastTransactions ?? {}).length ? { state: "degraded", lastKnownAt: knownTimes.at(-1), error: ledgerError }
       : { state: "unavailable", error: ledgerError };
     return {
+    contractSource:c.contractSource,sourceInvalidated:c.sourceInvalidated,
+    noticeProposal: c.noticeProposal,
     kase: c.kase,
     forecast: c.forecast,
     termsSource: c.kase.sourceNote ?? null,
@@ -418,6 +440,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
   // dry-run email to a real send. Everything else mutating: operator. Reads: viewer.
   const REQUIRED_ROLE: Record<string, Role> = {
     "POST /api/approve": "approver",
+    "POST /api/notice-apply": "approver",
     "POST /api/agent-run": "operator",
     "POST /api/reconcile-card": "operator",
     "POST /api/reject": "approver",
@@ -479,7 +502,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
     }
     if (url.pathname === "/api/reset-demo" && request.method === "POST") {
       if (options.live) { audit.append("refused", { reason: "demo reset is simulator-only on a live-backed console" }); return bad("demo reset is only available in the local simulator; on the live sandbox it would erase real evidence and unresolved locks", 409); }
-      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = options.seedCases && options.seedCases.length === 0 ? [] : demoCases(); outbox = new Outbox(now); restoredUnresolved.length = 0; persist(); audit.append("reset", {});
+      gateway = (options.makeGateway ?? makeSim)(); holderId = undefined; cases = options.seedCases && options.seedCases.length === 0 ? [] : demoCases(); outbox = new Outbox(now, options.live ? "Airwallex sandbox simulation" : "Local simulator"); restoredUnresolved.length = 0; persist(); audit.append("reset", {});
       return json({ cases: cases.map(view) });
     }
     if (url.pathname === "/api/resolve-restored" && request.method === "POST") {
@@ -514,6 +537,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       if (!parsed.success) return bad("invalid approval request", 400);
       const c = find(parsed.data.caseId);
       if (!c) return bad("case not found", 404);
+      if (c) { const sourceError=await checkContract(c);if(sourceError)return bad(sourceError,409); }
+      if (c.rejected) return bad("case is rejected; create a new case for a fresh review", 409);
       if (!c.kase.terms) return bad("terms not extracted: extraction must succeed before approval", 409);
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new approval - a fresh approval could create a duplicate card", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before approval", 409);
@@ -540,6 +565,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       const approval = parsed.data.approval as Approval;
       const c = find(approval.caseId);
       if (!c) return bad("case not found", 404);
+      if (c) { const sourceError=await checkContract(c);if(sourceError)return bad(sourceError,409); }
+      if (c.rejected) return bad("case is rejected; create a new case for a fresh review", 409);
       if (!c.intent) return bad("case not approved: approve before issuing a card", 409);
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile via /api/reconcile-card before any new issuance", 409);
       if (c.freezeState === "unknown" || c.freezeState === "pending") return bad("freeze not verified; reconcile before issue", 409);
@@ -692,6 +719,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       const parsed = SimulateBody.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return bad("invalid simulate request", 400);
       const c = find(parsed.data.caseId);
+      if (c) { const sourceError=await checkContract(c);if(sourceError)return bad(sourceError,409); }
+      if (c?.rejected) return bad("case is rejected; create a new case for a fresh review", 409);
       if (!c?.card || !c.intent) return bad("create the card first", 409);
       const base = { merchant: c.kase.vendor, category: c.intent.categories[0], currency: c.intent.currency };
       const auth = parsed.data.kind === "in-policy" ? { ...base, amount: c.intent.amountCap }
@@ -757,16 +786,16 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
         transaction = final;
         if (final.status === "CLEARING") {
           c.pendingAuthorization = undefined;
-          c.log.push(`Authorization ${t.id} cleared: ${t.amount} ${t.currency} at ${t.merchant}.`);
-          audit.append("authorization_cleared", { transactionId: t.id, amount: t.amount, currency: t.currency }, c.kase.id);
-          await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap } }));
+          c.log.push(`Authorization ${t.id} cleared: ${Math.abs(final.amount)} ${final.currency} at ${final.merchant ?? "not reported"}.`);
+          audit.append("authorization_cleared", { transactionId: t.id, amount: Math.abs(final.amount), currency: final.currency, providerMerchant: final.merchant }, c.kase.id);
+          await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: Math.abs(final.amount), currency: final.currency, cap: c.intent.amountCap, providerMerchant: final.merchant ?? "not reported" } }));
           persist();
         } else if (final.status === "FAILED") {
           // A documented failure payload at capture is a definitive decline.
           c.pendingAuthorization = undefined;
           c.log.push(`Authorization declined by the issuing gateway (${final.failureReason ?? "declined"}); the card enforced the approved intent.`);
           audit.append("authorization_declined", { transactionId: t.id, reason: final.failureReason, amount: t.amount }, c.kase.id);
-          await dispatcher.deliver(outbox.emit("purchase_declined", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, reason: final.failureReason ?? "declined" } }));
+          await dispatcher.deliver(outbox.emit("purchase_declined", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, reason: final.failureReason ?? "declined", providerMerchant: final.merchant ?? "not reported" } }));
           persist();
         } else {
           // PENDING (or an unexpected status, or the lookup failed): outcome unconfirmed.
@@ -784,9 +813,9 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       } else if (t.status === "CLEARING") {
         // Authorization came back already cleared (no capture step): same cleared truth as above.
         c.pendingAuthorization = undefined;
-        c.log.push(`Authorization ${t.id} cleared: ${t.amount} ${t.currency} at ${t.merchant}.`);
-        audit.append("authorization_cleared", { transactionId: t.id, amount: t.amount, currency: t.currency }, c.kase.id);
-        await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap } }));
+        c.log.push(`Authorization ${t.id} cleared: ${Math.abs(t.amount)} ${t.currency} at ${t.merchant ?? "not reported"}.`);
+        audit.append("authorization_cleared", { transactionId: t.id, amount: Math.abs(t.amount), currency: t.currency, providerMerchant: t.merchant }, c.kase.id);
+        await dispatcher.deliver(outbox.emit("purchase_cleared", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, cap: c.intent.amountCap, providerMerchant: t.merchant ?? "not reported" } }));
         persist();
       } else if (t.status !== "FAILED") {
         // Hardening: only a documented FAILED payload is a rejection. Any other status here
@@ -802,7 +831,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
         c.pendingAuthorization = undefined;
         c.log.push(`Authorization declined by the issuing gateway (${t.failureReason}); the card enforced the approved intent.`);
         audit.append("authorization_declined", { transactionId: t.id, reason: t.failureReason, amount: t.amount }, c.kase.id);
-        await dispatcher.deliver(outbox.emit("purchase_declined", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, reason: t.failureReason ?? "declined" } }));
+        await dispatcher.deliver(outbox.emit("purchase_declined", { caseId: c.kase.id, vendor: c.kase.vendor, recipient, detail: { amount: t.amount, currency: t.currency, reason: t.failureReason ?? "declined", providerMerchant: t.merchant ?? "not reported" } }));
         persist();
       }
       return json({ transaction, case: await view(c) });
@@ -889,10 +918,53 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       persist();
       return json({ outcome: "no_match", case: await view(c) });
     }
+    if (url.pathname === "/api/notice-propose" && request.method === "POST") {
+      const parsed = NoticeBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("Invalid notice upload", 400);
+      const c = find(parsed.data.caseId);
+      if(c?.contractSource)return bad("Contract-bound cases require explicit Salesforce refresh into a new review",409);
+      if (!c?.kase.terms || !c.intent || c.requiresReapproval) return bad("Select a currently approved deal before comparing a notice", 409);
+      if (c.pendingAuthorization || c.createCardUnresolved || c.freezeState === "unknown" || c.freezeState === "pending") return bad("Reconcile unresolved outcomes first", 409);
+      if (!options.planner) return bad("No model configured; notice analysis is unavailable", 501);
+      let notice: ReturnType<typeof parseNotice>;
+      try { notice = parseNotice(parsed.data.filename, parsed.data.content); } catch(e) { return bad((e as Error).message, 400); }
+      // Mention is a conservative matching guard, NOT authenticated vendor identity.
+      if (!notice.text.toLowerCase().includes(c.kase.vendor.toLowerCase())) return bad("Notice does not name this case vendor. Match it manually before analysis; no change made", 409);
+      const version = noticeVersion(c);
+      const tempCase = { ...c.kase, rawTerms: notice.text, terms: undefined, sourceNote: "untrusted uploaded notice" };
+      const plan = await options.planner(tempCase, c.forecast);
+      const terms = plan.proposal?.extracted_terms;
+      const decision = terms ? decide(terms, { ...c.forecast, breachWeek: null }, DEFAULT_POLICY, now()) : undefined;
+      c.noticeProposal = makeNoticeProposal(version, notice.source, notice.text, c.kase.terms, plan, decision, now());
+      // Read-only proposal: never changes approval, terms, card or outbox.
+      audit.append("notice_proposed", { proposalId: c.noticeProposal.id, sha256: notice.source.sha256, status: c.noticeProposal.status }, c.kase.id);
+      persist();
+      return json({ proposal: c.noticeProposal, case: await view(c) });
+    }
+    if (url.pathname === "/api/notice-apply" && request.method === "POST") {
+      const parsed = NoticeApplyBody.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return bad("Explicit review confirmation and proposal id required", 400);
+      const c = find(parsed.data.caseId), p = c?.noticeProposal;
+      if (!c || !p || p.id !== parsed.data.proposalId) return bad("No matching staged proposal", 409);
+      if (p.status !== "review" || !p.terms || noticeVersion(c) !== p.baseVersion || now().getTime() >= Date.parse(p.expiresAt)) return bad("Proposal is blocked, consumed, expired or stale; analyse the current notice again", 409);
+      if (restoredUnresolved.length || c.pendingAuthorization || c.createCardUnresolved || c.freezeState === "unknown" || c.freezeState === "pending") return bad("Reconcile unresolved outcomes before applying", 409);
+      // Persist a consumed/in-flight marker BEFORE the existing mutation path. A lost response
+      // or crash never makes this proposal replayable. No approval or purchase is issued here.
+      p.status = "applying"; c.requiresReapproval = true;
+      if (c.card && c.card.status !== "CLOSED") c.freezeState = "pending";
+      persist();
+      audit.append("notice_apply_reviewed", { proposalId: p.id, sha256: p.source.sha256, reviewer: identity?.sub ?? "demo-reviewer" }, c.kase.id);
+      const result = await handle(new Request(new URL("/api/change-terms", request.url), { method: "POST", headers: request.headers, body: JSON.stringify({ caseId: c.kase.id, terms: p.terms, rawTerms: p.rawTerms }) }));
+      p.status = result.ok ? "applied" : "blocked";
+      if (result.ok) c.kase.sourceNote = `Reviewed uploaded notice ${p.source.filename}; sender unverified; sha256 ${p.source.sha256}`;
+      persist();
+      return result;
+    }
     if (url.pathname === "/api/change-terms" && request.method === "POST") {
       const parsed = ChangeTermsBody.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return bad("invalid terms change", 400);
       const c = find(parsed.data.caseId);
+      if(c?.contractSource)return bad("Contract-bound cases require explicit Salesforce refresh into a new review",409);
       if (!c) return bad("case not found", 404);
       if (c.pendingAuthorization) { audit.append("refused", { reason: "terms change refused while an authorization outcome is unresolved", requestId: c.pendingAuthorization.requestId }, c.kase.id); return bad("an authorization outcome is unresolved; reconcile it before changing terms", 409); }
       const oldHash = c.kase.terms ? hashTerms(c.kase.terms) : undefined;
@@ -973,6 +1045,17 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       persist();
       return json({ card: c.card, case: await view(c) });
     }
+    if (url.pathname === "/api/salesforce/import" && request.method === "POST") {
+      if(!options.contractSource)return bad("Salesforce source not configured",501);
+      const input=await request.json().catch(()=>null) as any;
+      if(!input||typeof input.contractId!=="string"||input.confirm!==true)return bad("Contract id and explicit review confirmation required",400);
+      let source:ContractSnapshot;try{source=await options.contractSource.read(input.contractId);}catch{return bad("Salesforce contract read failed; no case created",409);}
+      const parsed=IntakeBody.safeParse({...input,vendor:source.vendor,rawTerms:source.rawTerms,sourceNote:"Salesforce Contract "+source.id+"; status "+source.status+"; source text untrusted; synthetic test record"});
+      if(!parsed.success)return bad("Twelve test weeklyBalances and reserveFloor required",400);
+      if(input.previousCaseId){const old=find(input.previousCaseId);if(!old?.contractSource||old.contractSource.id!==source.id)return bad("Previous case/source mismatch",409);if(old.pendingAuthorization||old.createCardUnresolved)return bad("Reconcile unresolved previous case first",409);old.sourceInvalidated=true;await checkContract(old);if(old.freezeState==="unknown")return bad("Old card freeze not verified",409);}
+      const id=`case_salesforce_${randomBytes(6).toString("hex")}`;
+      const c:CaseState={kase:{id,vendor:source.vendor,rawTerms:source.rawTerms,sourceNote:parsed.data.sourceNote},contractSource:source,forecast:{weeklyBalances:parsed.data.weeklyBalances,reserveFloor:parsed.data.reserveFloor},forecastSource:parsed.data.forecastSource,transactionIds:[],log:["Explicit Salesforce Contract import. Source terms untrusted; no approval inherited. Forecast is synthetic test input."]};cases.push(c);audit.append("contract_import",{contractId:source.id,version:source.version},id);persist();return json({case:await view(c)},201);
+    }
     if (url.pathname === "/api/intake" && request.method === "POST") {
       const parsed = IntakeBody.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return bad("invalid intake request: vendor, rawTerms, 12 weeklyBalances, reserveFloor and sourceNote are required", 400);
@@ -1023,6 +1106,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}): ConsoleHandle
       // Hard preconditions in code, before any model call: a person must have approved, and no
       // lock may stand. The agent never approves, never clears a lock, never overrides these.
       if (!c.intent) return bad("case not approved: a person approves before the agent runs", 409);
+      if (c) { const sourceError=await checkContract(c);if(sourceError)return bad(sourceError,409); }
       if (c.requiresReapproval) return bad("deal changed; fresh human approval required before the agent runs", 409);
       if (c.rejected) return bad("case is rejected", 409);
       if (c.createCardUnresolved) return bad("card issuance outcome unresolved; reconcile before the agent runs", 409);
@@ -1103,4 +1187,4 @@ export interface ConsoleHandler {
   (request: Request): Promise<Response>;
   readyCheck(): boolean;
   flush(): void;
-}
+        }
