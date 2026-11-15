@@ -15,7 +15,13 @@ export function checkReasoning(p: Proposal, c: PurchaseCase, r: RubricResult, an
   // Scores must not contradict the structured facts.
   if (s.cash_fit.score >= 4 && annualBreachWeek != null && p.cadence === "annual")
     bad("score_vs_facts", `cash_fit is high and annual is proposed, but annual breaches the reserve floor in week ${annualBreachWeek}`);
-  if (s.terms_clarity.score >= 4 && (t.monthlyPrice == null || t.annualPrice == null))
+  // An explicitly unavailable cadence is not an unexplained missing price. Keep
+  // unknown/ambiguous absence fail-closed; never infer absence from the model alone.
+  const explicitUnavailable = (cadence: string) => new RegExp(`\\b${cadence}\\s+(?:billing|plan|subscription)\\s+(?:is\\s+)?(?:not\\s+(?:offered|available)|unavailable)\\b`, "i").test(c.rawTerms);
+  const missingUnexplained = (t.monthlyPrice == null && !explicitUnavailable("monthly")) ||
+    (t.annualPrice == null && !explicitUnavailable("annual")) ||
+    (t.monthlyPrice == null && t.annualPrice == null);
+  if (s.terms_clarity.score >= 4 && missingUnexplained)
     bad("score_vs_facts", "terms_clarity is high but a price is missing from the extraction");
   if (s.terms_clarity.score <= 1 && t.monthlyPrice != null && t.annualPrice != null && t.noticeDays != null)
     bad("score_vs_facts", "terms_clarity is very low but the extraction found both prices and the notice period");
