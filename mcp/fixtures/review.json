@@ -1,0 +1,206 @@
+{
+  "provenance": "Synthetic seeded simulator snapshot. No live account, provider, model, email or payment calls.",
+  "cases": [
+    {
+      "kase": {
+        "id": "case_acme",
+        "vendor": "Acme Analytics",
+        "rawTerms": "Acme Analytics Pro: $100 per month, or $984 per year billed upfront (save 18%). 30 days notice on monthly plans. Billed in USD.",
+        "terms": {
+          "monthlyPrice": 100,
+          "annualPrice": 984,
+          "currency": "USD",
+          "category": "software",
+          "noticeDays": 30
+        }
+      },
+      "forecast": {
+        "weeklyBalances": [
+          1500,
+          1500,
+          1500,
+          1500,
+          1500,
+          1500,
+          1400,
+          1400,
+          1400,
+          1400,
+          1400,
+          1400
+        ],
+        "reserveFloor": 500
+      },
+      "termsSource": null,
+      "forecastSource": null,
+      "decision": {
+        "cadence": "monthly",
+        "reasons": [
+          "annual saves 18% but breaches the reserve floor in week 7",
+          "cash never absorbs the annual price inside the forecast: revisit at renewal"
+        ],
+        "savingsPct": 18,
+        "annualBreachWeek": 7,
+        "monthlyBreachWeek": null,
+        "reconsiderAt": null
+      },
+      "transactions": [],
+      "ledger": {
+        "state": "ok"
+      },
+      "emailMode": "preview",
+      "log": []
+    },
+    {
+      "kase": {
+        "id": "case_flowdesk",
+        "vendor": "Flowdesk",
+        "rawTerms": "Flowdesk Team plan. Monthly billing: 40 USD per month. Annual billing: 400 USD per year, paid in advance. Cancel monthly plans with 14 days notice. Category: software.",
+        "terms": {
+          "monthlyPrice": 40,
+          "annualPrice": 400,
+          "currency": "USD",
+          "category": "software",
+          "noticeDays": 14
+        }
+      },
+      "forecast": {
+        "weeklyBalances": [
+          3000,
+          3050,
+          3100,
+          3150,
+          3200,
+          3250,
+          3300,
+          3350,
+          3400,
+          3450,
+          3500,
+          3550
+        ],
+        "reserveFloor": 500
+      },
+      "termsSource": null,
+      "forecastSource": null,
+      "decision": {
+        "cadence": "annual",
+        "reasons": [
+          "annual saves 16.7% and never breaches the reserve floor"
+        ],
+        "savingsPct": 16.7,
+        "annualBreachWeek": null,
+        "monthlyBreachWeek": null,
+        "reconsiderAt": null
+      },
+      "transactions": [],
+      "ledger": {
+        "state": "ok"
+      },
+      "emailMode": "preview",
+      "log": []
+    },
+    {
+      "kase": {
+        "id": "case_northwind",
+        "vendor": "Northwind CRM",
+        "rawTerms": "Northwind CRM Business: 80 GBP per month, or 768 GBP per year billed upfront (save 20%). 30 days notice on monthly plans. Category: analytics.",
+        "terms": {
+          "monthlyPrice": 80,
+          "annualPrice": 768,
+          "currency": "GBP",
+          "category": "analytics",
+          "noticeDays": 30
+        }
+      },
+      "forecast": {
+        "weeklyBalances": [
+          2800,
+          2850,
+          2900,
+          2950,
+          3000,
+          3050,
+          3100,
+          3150,
+          3200,
+          3250,
+          3300,
+          3350
+        ],
+        "reserveFloor": 500
+      },
+      "termsSource": null,
+      "forecastSource": null,
+      "decision": {
+        "cadence": "annual",
+        "reasons": [
+          "annual saves 20% and never breaches the reserve floor"
+        ],
+        "savingsPct": 20,
+        "annualBreachWeek": null,
+        "monthlyBreachWeek": null,
+        "reconsiderAt": null
+      },
+      "transactions": [],
+      "ledger": {
+        "state": "ok"
+      },
+      "emailMode": "preview",
+      "log": []
+    },
+    {
+      "kase": {
+        "id": "case_pulsar",
+        "vendor": "Pulsar Ads",
+        "rawTerms": "Pulsar Ads: 150 USD per month. Annual pricing on request - talk to sales. 60 days notice. Category: marketing.",
+        "terms": {
+          "monthlyPrice": 150,
+          "annualPrice": null,
+          "currency": "USD",
+          "category": "marketing",
+          "noticeDays": 60
+        }
+      },
+      "forecast": {
+        "weeklyBalances": [
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200,
+          1200
+        ],
+        "reserveFloor": 500
+      },
+      "termsSource": null,
+      "forecastSource": null,
+      "decision": {
+        "cadence": "monthly",
+        "reasons": [
+          "the vendor offers monthly billing only; it stays above the reserve floor"
+        ],
+        "savingsPct": null,
+        "annualBreachWeek": null,
+        "monthlyBreachWeek": null,
+        "reconsiderAt": null
+      },
+      "transactions": [],
+      "ledger": {
+        "state": "ok"
+      },
+      "emailMode": "preview",
+      "log": []
+    }
+  ],
+  "audit": [],
+  "notifications": [],
+  "live": false,
+  "datasetVersion": "synthetic-seed-2026-11-10"
+}
