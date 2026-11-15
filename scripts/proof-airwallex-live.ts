@@ -19,12 +19,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { AirwallexClient } from "../src/gateway/airwallex.js";
 import { LiveIssuingGateway } from "../src/gateway/live.js";
 
-const CARD_ID = "8691d2c8-05ea-4b35-9ff2-147e24044528";
-const CARDHOLDER_EMAIL = "demo-buyer@vyayasan.com";
+const CARD_ID = process.env.AIRWALLEX_PROOF_CARD_ID || "";
+const CARDHOLDER_EMAIL = process.env.AIRWALLEX_PROOF_CARDHOLDER_EMAIL || "";
 const RUN = `live-proof-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 
-const clientId = readFileSync("/home/sandbox/.vault/airwallex-sandbox-api-admin-key-client-id-api-key-35d423/username", "utf8").trim();
-const apiKey = readFileSync("/home/sandbox/.vault/airwallex-sandbox-api-admin-key-client-id-api-key-35d423/password", "utf8").trim();
+const clientId = process.env.AIRWALLEX_CLIENT_ID || "";
+const apiKey = process.env.AIRWALLEX_API_KEY || "";
+if (!CARD_ID || !CARDHOLDER_EMAIL || !clientId || !apiKey) throw new Error("Explicit sandbox proof card, cardholder email and credentials are required");
 const client = new AirwallexClient({ clientId, apiKey, baseUrl: "https://api.sandbox.airwallex.com", maxRps: 2 });
 const gw = new LiveIssuingGateway(client);
 
