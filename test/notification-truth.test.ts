@@ -36,7 +36,7 @@ describe("notification wording matches the real case state", () => {
     expect((await post("close-card", { caseId: "case_acme" })).status).toBe(200);
     expect((await post("reject", { caseId: "case_acme", reason: "not in budget" })).status).toBe(200);
     const [n] = await notes("recommendation_rejected");
-    expect(n.subject).toBe("Case rejected: Acme Analytics"); // a card WAS created (then closed): no false "no card was created" claim
+    expect(n.subject).toBe("[TEST] Case rejected: Acme Analytics"); // a card WAS created (then closed): no false "no card was created" claim
     expect(n.body).toContain("permanently closed - it can never transact again");
     expect(n.body).not.toContain("No card was created");
     expect(n.html).toContain("Permanently closed");
@@ -58,7 +58,7 @@ describe("notification wording matches the real case state", () => {
     expect((await post("close-card", { caseId: "case_acme" })).status).toBe(200);
     expect((await change()).status).toBe(200);
     const [n] = await notes("deal_changed_frozen");
-    expect(n.subject).toBe("Deal changed: Acme Analytics card permanently closed, approval invalidated");
+    expect(n.subject).toBe("[TEST] Deal changed: Acme Analytics card permanently closed, approval invalidated");
     expect(n.body).toContain("permanently closed");
     expect(n.body).not.toContain("card was frozen");
     expect(n.html).toContain("Permanently closed");
@@ -69,7 +69,7 @@ describe("notification wording matches the real case state", () => {
     await approvedCard();
     expect((await change()).status).toBe(200);
     const [n] = await notes("deal_changed_frozen");
-    expect(n.subject).toBe("Deal changed: Acme Analytics card frozen, approval invalidated");
+    expect(n.subject).toBe("[TEST] Deal changed: Acme Analytics card frozen, approval invalidated");
     expect(n.body).toContain("card was frozen");
     expect(n.body).toContain("Freeze read-back: verified");
     expect(n.html).toContain("CARD FROZEN");
