@@ -4,7 +4,7 @@ import { CRITERIA } from "./rubric.js";
 
 /** Policy-derived figures the model may also rely on: breach weeks, the saving, the floor and the projection.
  * extraText serialises the structured forecast summary the model was shown, so it may cite its fields by name. */
-export interface PolicyContext { extraNumbers: (number | null)[]; extraText?: string; cashBalances?: number[]; reserveFloor?: number }
+export interface PolicyContext { extraNumbers: (number | null)[]; extraText?: string; cashBalances?: number[]; reserveFloor?: number; billingEveryWeeks?: number }
 
 // Guardrails constrain what the model may say before anything else looks at it. Each check is plain code with a
 // named reason. Any failure means the extraction is rejected and the case waits for a person.
@@ -81,6 +81,14 @@ export function checkGuardrails(p: Proposal, c: PurchaseCase, ctx?: PolicyContex
     const prices = [t.monthlyPrice, t.annualPrice].filter((n): n is number => n != null && termNumbers.has(n));
     for (const balance of ctx.cashBalances ?? []) for (const price of prices) {
       if (Number.isFinite(balance)) derived.magnitudes.add(round2(Math.abs(balance - price - ctx.reserveFloor)));
+    }
+  }
+  // The model sees the complete weekly forecast. Permit exactly the monthly balance
+  // projection that deterministic policy uses (charges at weeks 1, 5, 9), not an
+  // unbounded arithmetic closure or an invented price/forecast.
+  if (t.monthlyPrice != null && termNumbers.has(t.monthlyPrice)) {
+    for (const [week, balance] of (ctx?.cashBalances ?? []).entries()) {
+      if (Number.isFinite(balance)) derived.magnitudes.add(round2(Math.abs(balance - t.monthlyPrice * (Math.floor(week / (ctx?.billingEveryWeeks ?? 4)) + 1))));
     }
   }
   const unknownNumbers = [...new Set(numbersIn(text))].filter((n) => {
