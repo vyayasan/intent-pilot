@@ -1,6 +1,6 @@
 # IntentPay
 
-> Watch the [4:20 demo](docs/demo/intentpay-demo-v7.mp4) and follow the [judge quickstart](docs/judge-quickstart.md). The demo combines labelled recorded provider footage with a new local-simulator recording of the current build, including the read-only decision-to-control evidence inspector. See [evidence notes](docs/evidence-notes.md) for what was recorded versus freshly checked.
+> Watch the [4:20 demo](https://drive.google.com/file/d/1aMHfN_lOMaFDrPk87eeayZOHKdEXkw1i/view) (restricted Google Drive link) and follow the [judge quickstart](docs/judge-quickstart.md). The demo combines labelled recorded provider footage with a new local-simulator recording of the current build, including the read-only decision-to-control evidence inspector. See [evidence notes](docs/evidence-notes.md) for what was recorded versus freshly checked.
 
 ### Delegate the purchase. Keep the authority.
 
@@ -8,7 +8,7 @@ A purchase agent that turns the deal a person approved into payment controls. Wh
 
 **Airwallex Agentic Banking Hackathon · Starter Kit 02 · Expense & Policy**
 
-[Watch the 4:20 demo](docs/demo/intentpay-demo-v7.mp4) · [Judge quickstart](docs/judge-quickstart.md) · [Run locally](#run-locally) · [Cases & proof](docs/cases.md) · [Architecture](docs/architecture.md) · [Demo/source map](docs/demo-map.md)
+[Watch the 4:20 demo](https://drive.google.com/file/d/1aMHfN_lOMaFDrPk87eeayZOHKdEXkw1i/view) · [Judge quickstart](docs/judge-quickstart.md) · [Run locally](#run-locally) · [Cases & proof](docs/cases.md) · [Architecture](docs/architecture.md) · [Demo/source map](docs/demo-map.md)
 
 ![IntentPay purchase review console](docs/images/product.png)
 
