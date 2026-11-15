@@ -98,12 +98,30 @@ const BODIES: Record<NotificationKind, (i: NotificationInput) => string> = {
 export class Outbox {
   private static seq = 0;
   private readonly records: NotificationRecord[] = [];
-  constructor(private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly now: () => Date = () => new Date(), private readonly executionMode?: string) {}
 
   emit(kind: NotificationKind, input: NotificationInput): NotificationRecord {
-    const subject = SUBJECTS[kind](input);
-    const body = BODIES[kind](input);
-    const html = renderNotificationHtml(kind, input);
+    if (this.executionMode) input = { ...input, detail: { ...input.detail, executionMode: this.executionMode } };
+    let subject = (this.executionMode ? "[TEST] " : "") + SUBJECTS[kind](input);
+    let body = (this.executionMode ? `IntentPay test notification. Environment: ${this.executionMode}. No real merchant purchase or settlement. This is not a provider or merchant receipt.\n\n` : "") + BODIES[kind](input) + (input.detail.providerMerchant ? `\nProvider-reported merchant: ${input.detail.providerMerchant}. Case vendor is a scenario label, not merchant verification.\nCLEARING is the provider-reported test outcome, not proof of real settlement.` : "");
+    if (this.executionMode && (kind === "purchase_cleared" || kind === "purchase_declined")) {
+      const status = kind === "purchase_cleared" ? "CLEARING" : "DECLINED";
+      subject = `[TEST] IntentPay ${status}: ${input.detail.amount} ${input.detail.currency} for case ${input.vendor}`;
+      body = `IntentPay test notification. Environment: ${this.executionMode}.\nCase label: ${input.vendor}. Provider-reported merchant: ${input.detail.providerMerchant ?? "not reported"}.\nAmount: ${input.detail.amount} ${input.detail.currency}. Provider-reported test outcome: ${status}.` +
+        (kind === "purchase_declined" ? ` Reason: ${input.detail.reason}.` : "") +
+        `\nNo real merchant purchase or settlement. This is an IntentPay application notification, not a provider or merchant receipt.`;
+    }
+    if (this.executionMode === "Airwallex sandbox simulation" && kind === "deal_changed_frozen" && input.detail.cardState !== "closed") {
+      subject = "[TEST] IntentPay: changed deal, card frozen";
+      body = `Airwallex sandbox test for ${input.vendor}. Changed terms invalidated the old approval. The old card's frozen state was verified. Fresh human approval is required before replacement spending. No real merchant purchase or settlement. This is an IntentPay notification, not a merchant or provider receipt.`;
+    }
+    if (this.executionMode === "Airwallex sandbox simulation" && kind === "purchase_cleared") {
+      subject = `[TEST] IntentPay: ${input.detail.amount} ${input.detail.currency} reached CLEARING`;
+      body = `Airwallex sandbox test for case ${input.vendor}. Provider-reported merchant: ${input.detail.providerMerchant ?? "not reported"}. Amount: ${input.detail.amount} ${input.detail.currency}. Test outcome: CLEARING. No real merchant purchase or settlement. This is an IntentPay notification, not a merchant or provider receipt.`;
+    }
+    const html = this.executionMode === "Airwallex sandbox simulation" && (kind === "deal_changed_frozen" || kind === "purchase_cleared")
+      ? '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#101828;max-width:560px;margin:32px auto;padding:24px;border:1px solid #e4e7ea"><h2>IntentPay sandbox test</h2><p>' + body.replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]!)) + '</p></body></html>'
+      : renderNotificationHtml(kind, input);
     const sha256 = createHash("sha256").update(JSON.stringify({ kind, subject, body, caseId: input.caseId })).digest("hex");
     const record: NotificationRecord = {
       // Content hash + unique suffix: two identical REAL events must NOT collapse onto one id
