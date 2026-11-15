@@ -1,6 +1,6 @@
 # Demo walkthrough
 
-The included video is the final v7 delivered 15 November 2026, 4:20.668, 1920x1080, H.264 + AAC.
+The final v7 walkthrough, delivered 15 November 2026 (4:20.668, 1920x1080, H.264 + AAC), is hosted at a [restricted Google Drive link](https://drive.google.com/file/d/1aMHfN_lOMaFDrPk87eeayZOHKdEXkw1i/view).
 
 SHA-256: `b412699b5d7f6c74686bf2e8cee083f18f6986aac07842ecc9fd85154a222354`.
 
