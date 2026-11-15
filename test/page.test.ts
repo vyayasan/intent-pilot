@@ -36,3 +36,9 @@ describe("provider snapshot presentation", () => {
     expect(pageJs).toContain("Terms-change outcome unknown: response lost");
   });
 });
+
+it('rejected case remains visibly rejected and hides purchase actions',()=>{
+ expect(pageJs).toContain("c.rejected ? 'rejected - no further purchase'");
+ expect(pageJs).toContain('No new approval, card or purchase is allowed on this case.');
+ expect(pageJs).toContain("#approve,#mkcard,#runagent,#extract");
+});
