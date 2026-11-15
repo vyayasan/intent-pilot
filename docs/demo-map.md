@@ -2,7 +2,7 @@
 
 ## Current walkthrough: v7
 
-The current walkthrough is `docs/demo/intentpay-demo-v7.mp4`, prepared 15 November 2026. It is 4:20.668, 1920x1080, H.264/AAC. The original accepted 4:30 v6 is retained unchanged as historical material, not overwritten.
+The current walkthrough is hosted on Google Drive (restricted link): [intentpay-demo-v7.mp4](https://drive.google.com/file/d/1aMHfN_lOMaFDrPk87eeayZOHKdEXkw1i/view), prepared 15 November 2026. It is 4:20.668, 1920x1080, H.264/AAC. The original accepted 4:30 v6 is retained unchanged as historical material, not overwritten.
 
 V7 combines full-screen frames selected from the earlier recorded Salesforce/IntentPay/Airwallex sandbox demonstration with a newly recorded walkthrough of the final application's local simulator. It has a newly generated, consistent narration throughout. The historical sections use saved actual run views, including labelled renders of recorded final states; they do not depict a newly executed provider transaction or reconstruct unrecorded clicks.
 
@@ -43,4 +43,3 @@ Cash forecasts and Salesforce Contract data are synthetic/supplied. Source fresh
 V7 SHA-256: `b412699b5d7f6c74686bf2e8cee083f18f6986aac07842ecc9fd85154a222354`.
 
 Original v6 SHA-256: `bc630606548e44972e1bae935ad1bd8c522c310ed266f56099d3e506e3cf3a0f`.
-
