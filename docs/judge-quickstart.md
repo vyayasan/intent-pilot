@@ -37,7 +37,7 @@ The v7 video combines labelled recorded Salesforce/Claude/Airwallex sandbox foot
 
 The separate read-only MCP prototype uses a different earlier $900 case in a local official example host. It is not a native Claude-host demonstration and cannot approve or pay.
 
-## Verify the private candidate
+## Verify the candidate
 
 ```bash
 npm test
