@@ -174,6 +174,16 @@ const rowHtml = ([label, value]: Row, last: boolean): string =>
 
 export function renderNotificationHtml(kind: NotificationKind, i: NotificationInput): string {
   const v = view(kind, i);
+  if (i.detail.executionMode) {
+    v.intro = `IntentPay test notification. Environment: ${esc(i.detail.executionMode)}. No real merchant purchase or settlement. This is not a provider or merchant receipt.<br><br>` + v.intro;
+    if (kind === "purchase_cleared" || kind === "purchase_declined") {
+      const status = kind === "purchase_cleared" ? "CLEARING" : "DECLINED";
+      v.title = `IntentPay test outcome: ${status}`;
+      v.intro = `Environment: ${esc(i.detail.executionMode)}. Case label: ${esc(i.vendor)}. Provider-reported merchant: ${esc(i.detail.providerMerchant ?? "not reported")}.<br>Amount: ${esc(i.detail.amount)} ${esc(i.detail.currency)}. Provider-reported test outcome: ${status}.<br>No real merchant purchase or settlement. This is an IntentPay application notification, not a provider or merchant receipt.`;
+      v.rows = [["Case label", esc(i.vendor)], ["Provider merchant", esc(i.detail.providerMerchant ?? "not reported")], ["Test amount", `${esc(i.detail.amount)} ${esc(i.detail.currency)}`], ["Test outcome", status]];
+      v.note = "Sandbox simulation only. CLEARING is not proof of real settlement.";
+    }
+  }
   const rows = v.rows.map((r, idx) => rowHtml(r, idx === v.rows.length - 1)).join("");
   return [
     `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(v.title)}</title></head>`,
