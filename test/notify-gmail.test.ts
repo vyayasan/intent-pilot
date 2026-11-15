@@ -25,6 +25,15 @@ describe("GmailApiTransport failure discipline", () => {
     const r = await t.send(record());
     expect(r.providerId).toBe("msg-1");
   });
+  it("preserves an explicit pre-network guard refusal as definite not-sent", async () => {
+    const refusal = new DefiniteMailFailure("approved-copy guard refused before network send");
+    const { t } = mk(async url => {
+      if (url === SEND) throw refusal;
+      return jsonRes(200, okToken);
+    });
+    await expect(t.send(record())).rejects.toBe(refusal);
+    expect(refusal).not.toBeInstanceOf(AmbiguousMailFailure);
+  });
   it("MIME render: To/Subject/body survive base64 round-trip", async () => {
     let raw = "";
     const { t } = mk(async (url) => {
