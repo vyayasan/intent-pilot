@@ -1,3 +1,4 @@
+import {SalesforceContracts} from "../intake/salesforce.js";
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
@@ -40,7 +41,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   // so injected markup can never execute. Style attributes still need style-src 'unsafe-inline'
   // (presentational only, no script execution); the stylesheet itself is same-origin.
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cross-origin-opener-policy": "same-origin"
@@ -141,7 +142,7 @@ export function buildConsoleServer(env: NodeJS.ProcessEnv = process.env) {
     ? new AllowlistMailTransport(emailTransport, { kinds: allowKinds?.length ? allowKinds : undefined, to: allowTo, maxSends: allowMax })
     : emailTransport;
   // INTENTPAY_OPERATOR_TOKEN gates promotion of dry-run email records to real sends (http mode).
-  const api = createConsoleApi({ gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport: gatedTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, executorModel: model, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${stateTarget.stateFile}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: stateTarget.stateFile, unresolvedRestoreFile: env.INTENTPAY_UNRESOLVED_RESTORE_FILE, stateEngine: stateTarget.stateEngine });
+  const api = createConsoleApi({ contractSource: env.SALESFORCE_INSTANCE && env.SALESFORCE_CLIENT_ID && env.SALESFORCE_CLIENT_SECRET ? new SalesforceContracts({instance:env.SALESFORCE_INSTANCE,clientId:env.SALESFORCE_CLIENT_ID,clientSecret:env.SALESFORCE_CLIENT_SECRET}):undefined, gateway: live, seedCases: env.INTENTPAY_SEED === "none" ? [] : undefined, makeGateway: () => makeGateway() ?? makeSim(), emailTransport: gatedTransport, operatorToken: env.INTENTPAY_OPERATOR_TOKEN, live: !!live, planner: model ? (kase, forecast) => extractTerms(model, kase, forecast) : undefined, executorModel: model, key: env.INTENTPAY_HMAC_KEY ?? (production ? loadOrCreateHmacKey(env.INTENTPAY_HMAC_KEY_FILE ?? `${stateTarget.stateFile}.hmac.key`) : randomBytes(32).toString("hex")), approver: "demo-reviewer", sessionToken, auth: oidc, allowedOrigins, audit: auditLog, drillCrashAt: production ? undefined : env.INTENTPAY_DRILL_CRASH_AT, stateFile: stateTarget.stateFile, unresolvedRestoreFile: env.INTENTPAY_UNRESOLVED_RESTORE_FILE, stateEngine: stateTarget.stateEngine });
 
   // Fixed-window POST rate limit per client IP: brute-forcing the session token and abuse of
   // mutating endpoints both need volume; normal console use is a handful of POSTs per action.
