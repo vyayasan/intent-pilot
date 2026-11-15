@@ -1,0 +1,46 @@
+{
+  "name": "intentpay-readonly-mcp-prototype",
+  "version": "0.1.0",
+  "description": "Read-only MCP Apps prototype with live Airwallex sandbox card and ledger reads, saved synthetic case inputs",
+  "main": "index.js",
+  "scripts": {
+    "test": "tsx tests/live-read.ts",
+    "build": "tsx build-ui.ts && tsc --noEmit && vite build && cd host && INPUT=index.html vite build && INPUT=sandbox.html vite build",
+    "start": "concurrently --kill-others \"tsx main.ts\" \"tsx host/serve.ts\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/express": "^2.0.2",
+    "@modelcontextprotocol/ext-apps": "^2.0.4",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^10.0.7",
+    "cors": "^2.8.6",
+    "cross-env": "^10.1.0",
+    "express": "^5.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.6",
+    "vite-plugin-singlefile": "^2.3.4",
+    "zod": "^4.6.7"
+  },
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "playwright": "^1.65.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
