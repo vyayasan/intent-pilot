@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+const interFont = readFileSync(new URL("./fonts/Inter.ttf", import.meta.url)).toString("base64");
+const monoFont = readFileSync(new URL("./fonts/JetBrainsMono.ttf", import.meta.url)).toString("base64");
+
 export const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IntentPay - Approval console</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/console.css"></head><body>
 <div class="strip">IntentPay console · __GATEWAY_MODE__</div>
 <div class="wrap">
@@ -19,67 +22,30 @@ export const page = `<!doctype html>
 <script src="/console.js"></script></body></html>`;
 
 export const pageCss = `
-:root{font-family:Poppins,Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#101828;background:#fcfcfd;font-synthesis:none}
-*{box-sizing:border-box}body{margin:0;font-size:14px}
-.strip{background:#f2f4f7;color:#475467;font-size:12px;text-align:center;padding:8px 12px}
-.wrap{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 33px);align-items:start}
-.side{background:#14171a;color:#e6eaee;display:flex;flex-direction:column;padding:14px 12px;position:sticky;top:0;min-height:100vh}
-.org{display:flex;gap:10px;align-items:center;padding:6px 8px 14px;border-bottom:1px solid #23282d;margin-bottom:6px}
-.orgmark{width:34px;height:34px;border-radius:50%;background:#e04d37;color:#fff;display:grid;place-items:center;font-weight:600;font-size:12px}
-.orgt strong{font-size:14px;display:block;font-weight:600;color:#fff}.orgt span{font-size:11px;color:#9ba3ab}
-.navhead{font-size:10px;letter-spacing:.09em;color:#8a939c;margin:16px 8px 6px;text-transform:uppercase;font-weight:600}
-.navitem{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font-size:13px;color:#e6eaee}
-.navitem.active{color:#e04d37;background:#1e2226;font-weight:500;box-shadow:inset 3px 0 #e04d37}
-.casebtn{display:block;width:100%;text-align:left;background:transparent;border:0;padding:9px 12px;border-radius:8px;cursor:pointer;color:#e6eaee;font:inherit}
-.casebtn:hover{background:#1e2226}.casebtn.on{background:#1e2226;box-shadow:inset 3px 0 #e04d37}
-.casebtn b{color:#fff;font-size:13px;font-weight:600;display:block}
-.casebtn span{color:#8a939c;font-size:10px;text-transform:capitalize}
-.casebtn.on span{color:#e04d37}
-.sidefoot{margin-top:auto;padding:12px 8px 4px;color:#6b747d;font-size:10px;border-top:1px solid #23282d}
-.qrow{display:flex;justify-content:space-between;align-items:center;margin-top:16px}
-.qrow .navhead{margin:0 8px}
-.content{padding:22px 34px 60px;min-width:0}
-.muted{font-size:11px;color:#98a2b3}
-.panelhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.panelhead h2{margin:0;font-size:22px;font-weight:600;letter-spacing:-.01em}
-.grid2{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(260px,.95fr);gap:16px}
-.box{background:#fff;border:1px solid #e4e7ea;border-radius:12px;padding:20px}
-.box h3{margin:0 0 10px;font-size:13px;font-weight:600;color:#101828;text-transform:none}
-.terms{background:#f9fafb;border:1px solid #e4e7ea;border-radius:8px;padding:12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#344054;line-height:1.55;white-space:pre-wrap}
-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
-th{color:#667085;font-size:10px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:6px 8px;border-bottom:1px solid #e4e7ea;font-weight:600}
-td{padding:8px;border-bottom:1px solid #f0f2f3;color:#101828}
-.fc{position:relative;display:flex;align-items:flex-end;gap:6px;height:90px;border-bottom:1px solid #e4e7ea;padding-bottom:2px}
-.bar{flex:1;background:#d9d0fb;border-radius:2px 2px 0 0}
-.bar.breach{background:#e04d37}
-.floor{position:absolute;left:0;right:0;border-top:2px dashed #c05353}
-.decision{margin-top:16px;background:#f9fafb;border:1px solid #e4e7ea;border-radius:10px;padding:14px 16px}
-.decision b{font-size:13px;color:#101828}
-.reasons{margin:8px 0 0;padding-left:18px;color:#475467;font-size:12.5px;line-height:1.6}
-.kv{font-size:12.5px;display:grid;grid-template-columns:150px 1fr;row-gap:6px;margin-top:6px}
-.kv b{font-weight:500;color:#667085}.kv span{color:#101828}
-.hash{font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;color:#98a2b3;margin-top:10px}
-.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-button.act{border:1px solid transparent;border-radius:8px;padding:10px 18px;font:500 13px Poppins,Inter,ui-sans-serif,sans-serif;cursor:pointer;background:#612fef;color:#fff}
-button.act:hover{background:#5319e0}
-button.sec{background:#fff;color:#344054;border-color:#d0d5dd}
-button.sec:hover{background:#f9fafb}
-button.warn{background:#fff;color:#b42318;border-color:#fecdca}
-button.warn:hover{background:#fef3f2}
-button:disabled{opacity:.5;cursor:not-allowed}
-.txn{display:flex;justify-content:space-between;padding:9px 4px;border-bottom:1px solid #f0f2f3;font-size:12.5px;color:#344054}
-.ok{color:#027a48;font-weight:600}.bad{color:#b42318;font-weight:600}
-.audit{margin-top:16px;background:#fff;border:1px solid #e4e7ea;border-radius:12px;padding:20px}
-.audit h3{margin:0 0 8px;font-size:13px;font-weight:600}
-.audit .row{display:flex;gap:10px;font-size:11px;color:#667085;padding:5px 4px;border-bottom:1px solid #f0f2f3}
-.audit .row b{color:#344054;font-weight:600}
-.log{font-size:12px;color:#667085;margin-top:12px}.log div{padding:3px 0}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#101828;color:#fff;padding:11px 20px;border-radius:8px;font-size:13px;display:none;box-shadow:0 4px 14px rgba(16,24,40,.25)}
-.fld{display:block;font-size:12px;color:#475467;margin:10px 0}
-.fld input,.fld textarea{display:block;width:100%;margin-top:4px;border:1px solid #d0d5dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;color:#101828;background:#fff}
-.fld textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
-.srcnote{font-size:11px;color:#667085;background:#f9fafb;border:1px solid #e4e7ea;border-radius:6px;padding:6px 8px;margin-bottom:8px}
-@media(max-width:900px){.wrap{grid-template-columns:1fr}.side{position:static;min-height:0}.content{padding:18px}.grid2{grid-template-columns:1fr}}
+@font-face{font-family:Inter;src:url(data:font/ttf;base64,${interFont}) format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url(data:font/ttf;base64,${monoFont}) format("truetype");font-weight:100 800;font-style:normal;font-display:swap}
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#173B32;background:#F6F4EC;font-synthesis:none;--ink:#173B32;--muted:#65736A;--rule:#DCE2D8;--sage:#E7EEE2;--coral:#B94F36;--pale:#FFF0E9}
+*{box-sizing:border-box}body{margin:0;font-size:15px;line-height:1.55}button,input,textarea{font:inherit}button{touch-action:manipulation}
+.strip{background:#173B32;color:#fff;font-size:12px;letter-spacing:.035em;text-align:center;padding:10px 18px}
+.wrap{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:calc(100vh - 39px);align-items:start;max-width:1800px;margin:auto}
+.side{background:#EEEFE8;color:var(--ink);display:flex;flex-direction:column;padding:30px 20px;position:sticky;top:0;min-height:calc(100vh - 39px);border-right:1px solid var(--rule)}
+.org{display:flex;gap:12px;align-items:center;padding:0 6px 26px;border-bottom:1px solid var(--rule);margin-bottom:8px}.orgmark{width:38px;height:38px;border-radius:10px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:700;font-size:17px;flex-shrink:0}.orgt strong{font-size:23px;letter-spacing:-.045em;display:block;font-weight:700}.orgt span{font-size:12px;color:var(--muted)}
+.navhead{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.09em;color:var(--muted);margin:20px 8px 8px;text-transform:uppercase;font-weight:500}.navitem{padding:12px 14px;border-radius:10px;font-size:15px}.navitem.active{color:var(--ink);background:var(--sage);font-weight:650;box-shadow:inset 3px 0 var(--ink)}
+.casebtn{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;padding:14px 12px;margin:5px 0;border-radius:12px;cursor:pointer;color:var(--ink);font:inherit;overflow-wrap:anywhere}.casebtn:hover{background:#f7f8f3}.casebtn.on{background:#fff;border-color:var(--rule);box-shadow:0 3px 12px #173b3206}.casebtn b{font-size:14px;font-weight:650;display:block}.casebtn span{color:var(--muted);font-size:12px;text-transform:capitalize}.casebtn.on span{color:var(--coral)}
+.sidefoot{margin-top:auto;padding:28px 8px 0;color:var(--muted);font-size:12px}.sidefoot:after{content:'Vyaya.';display:block;color:var(--ink);font-size:23px;letter-spacing:-.04em;font-weight:700;margin-top:24px}.qrow{display:flex;justify-content:space-between;align-items:center;margin-top:20px;gap:6px}.qrow .navhead{margin:0 8px}.qrow>span{display:flex;gap:5px}
+.content{padding:40px 42px 80px;min-width:0}.muted{font-size:13px;color:var(--muted);overflow-wrap:anywhere}.panelhead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:26px}.panelhead h2{margin:0;font-size:30px;font-weight:650;letter-spacing:-.045em;line-height:1.2}.panelhead .muted{font-family:'JetBrains Mono',monospace;font-size:10px;max-width:40%;text-align:right}
+.grid2{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:20px}.box{background:#fff;border:1px solid var(--rule);border-radius:18px;padding:26px;box-shadow:0 5px 22px #173b3203;min-width:0}.box h3{margin:0 0 14px;font-size:16px;font-weight:650;color:var(--ink);letter-spacing:-.02em}.terms{background:#F6F6F1;border:1px solid var(--rule);border-radius:10px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink);line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:14px;table-layout:fixed}th{color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:10px 5px;border-bottom:1px solid var(--rule);font-weight:500;overflow-wrap:anywhere}td{padding:12px 5px;border-bottom:1px solid var(--rule);color:var(--ink);overflow-wrap:anywhere}
+.fc{position:relative;display:flex;align-items:flex-end;gap:7px;height:90px;border-bottom:1px solid var(--rule);padding-bottom:2px;margin-top:30px}.bar{flex:1;background:#BACDB4;border-radius:4px 4px 0 0}.bar.breach{background:var(--coral)}.floor{position:absolute;left:0;right:0;border-top:2px dashed var(--coral)}
+.decision{margin-top:20px;background:#E7EEE2;border:1px solid #CFDCC9;border-radius:14px;padding:21px 24px}.decision b{font-size:18px;color:var(--ink);letter-spacing:-.025em}.decision p{margin:8px 0 0}.reasons{margin:8px 0 0;padding-left:20px;color:var(--ink);font-size:15px;line-height:1.6}.kv{font-size:15px;display:grid;grid-template-columns:170px minmax(0,1fr);gap:10px 20px;margin-top:8px}.kv b{font-weight:450;color:var(--muted)}.kv span{color:var(--ink);font-weight:550;overflow-wrap:anywhere}.hash{font-family:'JetBrains Mono',monospace;font-size:11px;overflow-wrap:anywhere;color:var(--muted);margin-top:18px}
+.btns{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}button.act{border:1px solid transparent;border-radius:10px;padding:13px 20px;font:600 14px Inter,ui-sans-serif,sans-serif;min-height:46px;cursor:pointer;background:var(--ink);color:#fff;line-height:1.4;white-space:normal}button.act:hover{background:#254F43}button.sec{background:#fff;color:var(--ink);border-color:#CCD3C8}button.sec:hover{background:var(--sage)}button.warn{background:var(--pale);color:var(--coral);border-color:#E7CDBF}button.warn:hover{background:#FFE6DB}button:disabled{opacity:.5;cursor:not-allowed}button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #7C9C72;outline-offset:3px}.side button.act{padding:9px 10px!important;font-size:12px!important;min-height:42px}.side #refresh{width:100%;margin:18px 0 9px!important;font-size:13px!important}.side #readhealth{font-size:12px!important;color:var(--muted)!important;margin:0 8px 12px}
+.txn{display:flex;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid var(--rule);font-size:14px;color:var(--ink);overflow-wrap:anywhere}.txn>span:first-child{min-width:0}.txn>span:last-child{text-align:right;flex-shrink:0;max-width:46%}.ok{color:#386A43;font-weight:650}.bad{color:var(--coral);font-weight:650}.audit{margin-top:22px}.audit .row{display:grid;grid-template-columns:170px minmax(0,1fr);gap:10px;font-size:12px;color:var(--muted);padding:11px 0;border-bottom:1px solid var(--rule);overflow-wrap:anywhere}.audit .row b{color:var(--ink);font-weight:600}.log{font-size:13px;color:var(--muted);margin-top:22px}.log div{padding:5px 0}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:14px 22px;border-radius:12px;font-size:14px;display:none;box-shadow:0 6px 24px #173b3220;max-width:calc(100vw - 32px);z-index:20}
+.fld{display:block;font-size:14px;color:var(--muted);margin:16px 0}.fld input,.fld textarea{display:block;width:100%;margin-top:7px;border:1px solid #CCD3C8;border-radius:10px;padding:12px 14px;font:inherit;font-size:15px;color:var(--ink);background:#fff}.fld textarea{font-family:'JetBrains Mono',monospace;font-size:13px;resize:vertical}.srcnote{font-size:12px;color:var(--muted);background:#F6F6F1;border:1px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:14px;overflow-wrap:anywhere}p{line-height:1.6}blockquote{border-left:3px solid #BACDB4;margin:14px 0;padding:9px 16px;background:#F6F6F1;border-radius:0 8px 8px 0}pre{font-family:'JetBrains Mono',monospace;font-size:12px;overflow-wrap:anywhere}details{margin-top:14px}summary{cursor:pointer;min-height:44px;padding:9px 0;color:var(--ink)!important;font-size:14px!important}input[type=file]{font-size:14px;max-width:100%}input::file-selector-button{font:inherit;border:1px solid #CCD3C8;border-radius:8px;background:#F6F6F1;padding:10px;margin-right:12px;color:var(--ink)}
+[style*="background:#fffaeb"],[style*="background:#fff7f5"],[style*="background:#fef3f2"]{background:var(--pale)!important;border-color:#E7CDBF!important;color:var(--ink)!important}[style*="background:#f9fafb"]{background:#F6F6F1!important;color:var(--muted)!important}[style*="color:#475467"],[style*="color:#344054"]{color:var(--ink)!important}
+@media(min-width:1550px){.content{padding:48px 60px 90px}.box{padding:30px}}
+@media(max-width:1100px){.wrap{grid-template-columns:240px minmax(0,1fr)}.side{padding:26px 14px}.content{padding:30px 24px 60px}.grid2{grid-template-columns:1fr}.panelhead{flex-direction:column;gap:8px}.panelhead .muted{max-width:100%;text-align:left}.box{padding:22px}}
+.evidence details{margin-top:18px}.evidence summary{cursor:pointer;font-weight:600}.evidence-json{white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;background:#f5f6f8;padding:16px;border-radius:8px;font-size:12px}.evidence-hash{font-family:monospace;overflow-wrap:anywhere;font-size:12px}.evidence-warning{border:1px solid #fdb022;background:#fffaeb;padding:10px 16px;border-radius:8px;margin:14px 0}.evidence-warning p{margin:4px 0}
+@media(max-width:720px){.wrap{display:block}.side{position:static;min-height:0;border-right:0;border-bottom:1px solid var(--rule);padding:24px 18px}.org{padding-bottom:18px}.sidefoot{padding-top:14px}.sidefoot:after{display:none}.content{padding:28px 16px 60px}.panelhead h2{font-size:27px}.box{padding:20px 16px;border-radius:14px}.btns{gap:10px}.btns>button{flex:1 1 150px}.kv{grid-template-columns:105px minmax(0,1fr);gap:10px 12px;font-size:14px}.txn{flex-direction:column;gap:8px}.txn>span:last-child{text-align:left;max-width:100%}.audit .row{grid-template-columns:1fr;gap:4px}.decision{padding:18px}.terms{font-size:11px}table{font-size:12px}th{font-size:9px}.strip{font-size:11px}.toast{width:calc(100vw - 32px)}}
 `;
 
 export const pageJs = `
@@ -96,12 +62,52 @@ if (!token) { // signed-in mode: show who from the server, never from the URL or
 }
 function toast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(function(){ t.style.display = 'none'; }, 3200); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
-function load() { var h = document.getElementById('readhealth'); if (h) h.textContent = 'Reading provider state...'; return api('/api/cases').then(function(d){ if (!d || d.error || !Array.isArray(d.cases)) throw new Error(d && d.error || 'Invalid response'); if (h) h.textContent = 'Snapshot loaded - refresh for latest'; state.cases = d.cases; state.audit = d.audit; state.notifications = d.notifications || []; state.live = !!d.live; var rs = document.getElementById('reset'); if (rs) rs.style.display = state.live ? 'none' : ''; if (!state.sel && d.cases.length) state.sel = d.cases[0].kase.id; render(); }).catch(function(){ if (h) h.textContent = 'Refresh failed - displayed snapshot may be stale'; toast('Could not refresh. Showing the previous snapshot, not current provider evidence.'); }); }
+function load() { var h = document.getElementById('readhealth'); if (h) h.textContent = 'Reading provider state...'; return api('/api/cases').then(function(d){ if (!d || d.error || !Array.isArray(d.cases)) throw new Error(d && d.error || 'Invalid response'); if (h) h.textContent = 'Snapshot loaded - refresh for latest'; state.snapshotAt = new Date().toISOString(); state.snapshotStale = false; state.cases = d.cases; state.audit = d.audit; state.notifications = d.notifications || []; state.live = !!d.live; var rs = document.getElementById('reset'); if (rs) rs.style.display = state.live ? 'none' : ''; if (!state.sel && d.cases.length) state.sel = d.cases[0].kase.id; render(); }).catch(function(){ state.snapshotStale = true; render(); if (h) h.textContent = 'Refresh failed - displayed snapshot may be stale'; toast('Could not refresh. Showing the previous snapshot, not current provider evidence.'); }); }
 function current() { return state.cases.filter(function(c){ return c.kase.id === state.sel; })[0]; }
+// Read-only evidence view: use the caller-authorized snapshot, never approval tokens or all-case audit.
+function redactEvidenceDetail(value) {
+  if(Array.isArray(value)) return value.map(redactEvidenceDetail);
+  if(value && typeof value === 'object') { var out={}; Object.keys(value).forEach(function(k){out[k]=/^(nonce|signature|token|password|apiKey)$/i.test(k)?'[redacted]':redactEvidenceDetail(value[k]);});return out; }
+  return value;
+}
+function caseEvidence(c) {
+  return {
+    schema: 'intentpay-case-evidence-v1',
+    exportedAt: new Date().toISOString(), snapshotAt: state.snapshotAt || null, snapshotStale: !!state.snapshotStale,
+    evidenceMode: state.live ? 'Configured Airwallex sandbox - read timestamps and failures below' : 'Local simulator - not real provider evidence',
+    limits: ['Local application snapshot, not a signed provider attestation or settlement receipt.', 'Source checks are non-atomic; seller identity and forecast accuracy are not verified.', 'Case-filtered events may have predecessors outside this case and sensitive detail redactions; this export cannot independently verify the audit hash chain.'],
+    caseId: c.kase.id, vendor: c.kase.vendor,
+    termsSource: c.termsSource || 'Seeded simulator fixture', forecastSource: c.forecastSource || 'Scenario input - not a bank feed',
+    source: c.contractSource ? { id: c.contractSource.id, version: c.contractSource.version, invalidated: !!c.sourceInvalidated } : null,
+    decision: c.decision,
+    approvedIntent: c.intent ? { id:c.intent.id, termsHash:c.intent.termsHash, intentHash:c.intentHash, cadence:c.intent.cadence, amountCap:c.intent.amountCap, currency:c.intent.currency, categories:c.intent.categories } : null,
+    authority: { rejected:!!c.rejected, requiresReapproval:!!c.requiresReapproval, issuanceUnresolved:!!c.createCardUnresolved, authorizationUnresolved:!!(c.pendingAuthorization && !c.pendingAuthorization.reconciledAt), freezeState:c.freezeState || 'not requested' },
+    card: c.card ? { id:c.card.id, status:c.card.status, controls:c.card.controls } : null,
+    cardStatusRead:c.cardStatusRead || null, ledger:c.ledger || null,
+    authorizations:c.transactions,
+    events:(state.audit || []).filter(function(a){ return a.caseId === c.kase.id; }).map(function(a){return {seq:a.seq,ts:a.ts,kind:a.kind,caseId:a.caseId,detail:redactEvidenceDetail(a.detail),prev:a.prev,hash:a.hash};})
+  };
+}
+function evidencePanel(c) {
+  var e=caseEvidence(c);
+  var warnings=[];
+  if(e.snapshotStale) warnings.push('Snapshot refresh failed: displayed and exported data may be stale.');
+  if(e.authority.rejected) warnings.push('Rejected: no further purchase authority.');
+  if(e.authority.requiresReapproval || (e.source && e.source.invalidated)) warnings.push('Changed or unverifiable source: previous approval must not be reused.');
+  if(e.authority.issuanceUnresolved || e.authority.authorizationUnresolved) warnings.push('Unresolved outcome: spending locked pending reconciliation.');
+  if(e.authority.freezeState === 'unknown' || e.authority.freezeState === 'pending') warnings.push('Freeze unverified: do not assume the old card is stopped.');
+  if(e.cardStatusRead && e.cardStatusRead.state !== 'ok') warnings.push('Card status read failed: saved status is not current evidence.');
+  if(e.ledger && e.ledger.state !== 'ok') warnings.push('Ledger unavailable or stale: this is not proof of no transactions.');
+  return '<div class="box evidence" style="margin-top:14px"><h3>Inspect the decision-to-control chain</h3><p class="srcnote">' + esc(e.evidenceMode) + '. Read-only snapshot; opening or downloading this view makes no approval, card or purchase action.</p>' +
+    (warnings.length ? '<div role="status" class="evidence-warning">'+warnings.map(function(w){return '<p>'+esc(w)+'</p>';}).join('')+'</div>' : '') +
+    '<div class="kv"><b>Approved terms hash</b><span class="evidence-hash">'+esc(e.approvedIntent ? e.approvedIntent.termsHash : 'No approved intent')+'</span><b>Approved intent hash</b><span class="evidence-hash">'+esc(e.approvedIntent ? e.approvedIntent.intentHash : 'No approved intent')+'</span><b>Source version</b><span class="evidence-hash">'+esc(e.source ? e.source.version : 'No Salesforce source version')+'</span><b>Exact-case events</b><span>'+e.events.length+' visible to this session (no other-case or global events)</span></div>' +
+    '<details><summary>Read the full case snapshot and ordered events</summary><p class="srcnote">Full detail with credential-shaped fields and approval nonces redacted. An empty event list can mean this session cannot view audit details, not that nothing happened. Export may contain business and operator details. Keep it private unless approved.</p><pre class="evidence-json">'+esc(JSON.stringify(e,null,2))+'</pre></details><div class="btns"><button class="act sec" id="export-evidence">Download this case snapshot (JSON)</button></div><p class="srcnote">Local application evidence, not a signed provider attestation. Authorizations are not settlement. A case-filtered audit subset cannot independently verify the whole hash chain.</p></div>';
+}
+
 function render() {
   var q = document.getElementById('cases');
   q.innerHTML = state.cases.map(function(c){
-    var stage = c.createCardUnresolved ? 'card issuance unresolved - locked' : (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) ? 'authorization unresolved - locked' : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'freeze unverified - blocked' : c.requiresReapproval ? 'deal changed - review required' : c.cardStatusRead && c.cardStatusRead.state !== 'ok' ? 'card status unknown' : c.card ? (c.card.status === 'CLOSED' ? 'card closed' : c.card.status === 'FROZEN' ? 'card frozen' : 'card active') : (c.intent ? 'approved' : (c.rejected ? 'rejected' : 'awaiting review'));
+    var stage = c.rejected ? 'rejected - no further purchase' : c.createCardUnresolved ? 'card issuance unresolved - locked' : (c.pendingAuthorization && !c.pendingAuthorization.reconciledAt) ? 'authorization unresolved - locked' : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'freeze unverified - blocked' : c.requiresReapproval ? 'deal changed - review required' : c.cardStatusRead && c.cardStatusRead.state !== 'ok' ? 'card status unknown' : c.card ? (c.card.status === 'CLOSED' ? 'card closed' : c.card.status === 'FROZEN' ? 'card frozen' : 'card active') : (c.intent ? 'approved' : (c.rejected ? 'rejected' : 'awaiting review'));
     return '<button class="casebtn' + (c.kase.id === state.sel ? ' on' : '') + '" data-id="' + esc(c.kase.id) + '"><b>' + esc(c.kase.vendor) + '</b><span>' + stage + '</span></button>';
   }).join('');
   Array.prototype.forEach.call(q.querySelectorAll('.casebtn'), function(b){ b.onclick = function(){ state.sel = b.dataset.id; state.approval = null; state.cardRecon = null; render(); }; });
@@ -128,7 +134,7 @@ function render() {
   p.innerHTML =
     (c.createCardUnresolved ? '<div class="decision" style="border-color:#fdb022;background:#fffaeb;margin:0 0 16px"><b>Card issuance outcome unresolved - locked.</b><p>The provider did not confirm issuance (' + esc(c.createCardUnresolved.error) + '). A retry with a fresh approval could create a SECOND card, so approvals and card creation stay blocked until an operator checks the provider card list.</p><button class="act sec" id="reconcile-card">Check provider cards</button>' + (state.cardRecon ? '<div style="margin-top:10px">' + (state.cardRecon.length ? state.cardRecon.map(function(rc){ return '<div class="txn"><span>' + esc(rc.id) + ' (' + esc(rc.status) + ')</span><span><button class="act sec" data-adopt="' + esc(rc.id) + '" style="padding:4px 10px;font-size:11px">Adopt (verify controls)</button> <button class="act warn" data-stray="' + esc(rc.id) + '" style="padding:4px 10px;font-size:11px">Freeze stray</button></span></div>'; }).join('') : '<p class="muted">The provider lists no cards for this cardholder.</p><button class="act warn" id="reconcile-card-none">Attest: no card was created - unlock for a fresh approval</button>') + '</div>' : '') + '</div>' : '') +
     (c.pendingAuthorization ? '<div class="decision" style="border-color:#fdb022;background:#fffaeb;margin:0 0 16px"><b>' + (c.pendingAuthorization.reconciledAt ? 'Manually confirmed - retry unlocked.' : c.pendingAuthorization.probableMatch ? 'Probable ledger match - operator review required.' : 'Authorization outcome unresolved - locked.') + '</b><p>' + (c.pendingAuthorization.reconciledAt ? 'Local operator attestation at ' + esc(c.pendingAuthorization.reconciledAt) + ': ' + esc(c.pendingAuthorization.manualConfirm || '') + ' (A local operator action, not proof of provider finality.) The retry reuses the original request id.' : c.pendingAuthorization.probableMatch ? 'Reconcile found ' + esc(c.pendingAuthorization.probableMatch.transactionId) + ' (' + esc(c.pendingAuthorization.probableMatch.status) + ') matching card, amount, currency, merchant and time window - heuristic only, it may be an unrelated payment. Spending stays locked until an operator reviews it.' : 'The gateway did not confirm the last purchase attempt (' + esc(c.pendingAuthorization.lastError || 'no detail') + '). Purchases on this card are locked until reconciliation. A ledger no-match does not unlock on its own - ledger visibility can lag and this endpoint documents no idempotency guarantee.') + '</p><button class="act sec" id="reconcile">Reconcile with gateway ledger</button> <button class="act warn" id="reconcile-manual">' + (c.pendingAuthorization.probableMatch ? 'Review and resolve the probable match' : 'Confirm manually after dashboard check') + '</button></div>' : '') +
-    (c.requiresReapproval ? '<div class="decision" style="border-color:#fecdca;background:#fff7f5;margin:0 0 16px"><b>Deal changed. Approval invalidated.</b><p>' + (c.card && c.card.status === 'CLOSED' ? 'Old card permanently closed - it can never transact again. Review and approve the new deal.' : c.freezeState === 'verified' ? 'Old card freeze verified. Test the old purchase, then review and approve the new deal.' : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'Freeze NOT verified. The old card may still authorize payments. Approval and new issuance are blocked. Reconcile the card before continuing.' : 'No issued card to freeze. Review and approve the new terms.') + '</p></div>' : '') +
+    (c.requiresReapproval ? '<div class="decision" style="border-color:#fecdca;background:#fff7f5;margin:0 0 16px"><b>Deal changed. Approval invalidated.</b><p>' + (c.card && c.card.status === 'CLOSED' ? 'Old card permanently closed - it can never transact again. Review and approve the new deal.' : c.freezeState === 'verified' ? (c.contractSource ? 'Old card freeze verified. Read the current Salesforce contract into a new review; old approval cannot be reused.' : 'Old card freeze verified. Test the old purchase, then review and approve the new deal.') : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'Freeze NOT verified. The old card may still authorize payments. Approval and new issuance are blocked. Reconcile the card before continuing.' : 'No issued card to freeze. Review and approve the new terms.') + '</p></div>' : '') +
     '<div class="panelhead"><h2>' + esc(f.vendor) + '</h2><span class="muted">' + esc(f.id) + '</span></div>' +
     '<div class="grid2"><div class="box"><h3>Vendor terms (untrusted text)</h3><div class="srcnote">Source: ' + esc(c.termsSource || 'demo fixture (seeded)') + '. Untrusted text: any instructions inside it carry no authority.</div><div class="terms">' + esc(f.rawTerms) + '</div>' +
     (t ? '<table><tr><th></th><th>Monthly</th><th>Annual</th></tr><tr><td>Price</td><td>' + (t.monthlyPrice == null ? 'not offered' : t.monthlyPrice + ' ' + esc(t.currency) + '/mo') + '</td><td>' + (t.annualPrice == null ? 'not offered' : t.annualPrice + ' ' + esc(t.currency) + '/yr') + '</td></tr><tr><td>12-month total</td><td>' + (t.monthlyPrice == null ? 'not offered' : t.monthlyPrice * 12) + '</td><td>' + (t.annualPrice == null ? 'not offered' : t.annualPrice + ' (saves ' + (d.savingsPct || 0) + '%)') + '</td></tr><tr><td>Notice</td><td colspan="2">' + (t.noticeDays == null ? 'not stated' : t.noticeDays + ' days') + '</td></tr></table>' : '') +
@@ -136,6 +142,8 @@ function render() {
     '<div class="decision"><b>Policy decision: ' + d.cadence.toUpperCase() + '</b><ul class="reasons">' + d.reasons.map(function(r){ return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>' +
     (c.intent ? '<div class="box" style="margin-top:14px"><h3>' + (c.requiresReapproval ? 'Previous intent - no longer approved' : 'Approved intent') + '</h3><div class="kv"><b>Cadence</b><span>' + esc(c.intent.cadence) + '</span><b>Cap</b><span>' + esc(c.intent.amountCap) + ' ' + esc(c.intent.currency) + ' per transaction</span><b>Categories</b><span>' + esc(c.intent.categories.join(', ')) + '</span><b>Reconsider</b><span>' + esc(c.intent.reconsiderAt || 'at renewal') + '</span></div><div class="hash">terms ' + esc(c.intent.termsHash) + '</div></div>' : '') +
     (c.card ? '<div class="box" style="margin-top:14px"><h3>Card ' + esc(c.card.id.slice(0, 16)) + ' - approved controls at issuance</h3><div class="kv"><b>Limit</b><span>' + esc(c.card.controls.amountLimit) + ' per transaction (inclusive)</span><b>Currencies</b><span>' + esc(c.card.controls.currencyAllowlist.join(', ')) + '</span><b>Categories</b><span>' + esc(c.card.controls.merchantCategories.join(', ')) + '</span><b>Status</b><span>' + esc(c.cardStatusRead && c.cardStatusRead.state !== 'ok' ? 'UNKNOWN - saved status ' + c.card.status : c.freezeState === 'unknown' || c.freezeState === 'pending' ? 'UNKNOWN - last confirmed ' + c.card.status : c.card.status) + '</span><b>Status source</b><span>' + esc(c.cardStatusRead ? (c.cardStatusRead.state === 'ok' ? 'Provider read at ' : 'Read failed at ') + c.cardStatusRead.checkedAt : 'Saved snapshot - not a current provider read') + '</span></div></div>' : '') +
+    (c.intent && !c.requiresReapproval ? '<div class="box" style="margin-top:14px"><h3>Notice to decision</h3><p class="muted">Upload a plain-text .eml or .txt notice for this vendor. Headers are unverified, content is untrusted. Analysis proposes only: no card action until you review and apply.</p><input type="file" id="notice-file" accept=".eml,.txt,text/plain,message/rfc822"><div class="btns"><button class="act sec" id="notice-analyse">Analyse notice (model)</button></div></div>' : '') +
+    (c.noticeProposal ? '<div class="box" style="margin-top:14px"><h3>Notice proposal: ' + esc(c.noticeProposal.status) + '</h3><p class="srcnote">' + esc(c.noticeProposal.source.filename) + ' - ' + esc(c.noticeProposal.source.trust) + '</p><p>' + esc(c.noticeProposal.rationale) + '</p>' + (c.noticeProposal.missingFields ? '<p><b>Needed before any decision:</b> ' + esc(c.noticeProposal.missingFields.join(', ')) + '</p>' : '') + '<table><tr><th>Changed field</th><th>Approved</th><th>Proposed</th></tr>' + c.noticeProposal.changes.map(function(x){return '<tr><td>'+esc(({monthlyPrice:'Monthly price',annualPrice:'Annual price',currency:'Currency',category:'Category',noticeDays:'Notice period (days)'})[x.field] || x.field)+'</td><td>'+esc(x.before == null ? 'not stated' : x.before)+'</td><td>'+esc(x.after == null ? 'not stated' : x.after)+'</td></tr>';}).join('') + '</table>' + (c.noticeProposal.decision ? '<p><b>Code policy: '+esc(c.noticeProposal.decision.cadence)+'</b>. '+esc(c.noticeProposal.decision.reasons.join('; '))+'</p>' : '') + '<h3>Supporting words</h3>' + c.noticeProposal.citations.map(function(x){return '<blockquote>'+esc(x)+'</blockquote>';}).join('') + '<details><summary>Read the uploaded notice</summary><pre style="white-space:pre-wrap">'+esc(c.noticeProposal.rawTerms)+'</pre></details><p class="muted">Applying invalidates the old approval and attempts to freeze its card. It does not cancel a contract or approve replacement spending. Missing facts are not filled from the old deal.</p>' + (c.noticeProposal.status === 'review' ? '<div class="btns"><button class="act warn" id="notice-apply">I reviewed this change: apply and freeze old card</button></div>' : '') + '</div>' : '') +
     '<div class="btns">' +
     (c.intent && !c.requiresReapproval && !c.termsSource && !state.live ? '<button class="act warn" id="change-deal">Demo fixture: cheaper deal arrives</button>' : '') +
     (c.intent && !c.requiresReapproval ? '<button class="act sec" id="change-real">Change deal: enter real terms</button>' : '') +
@@ -150,7 +158,25 @@ function render() {
     ((txns || (c.ledger && c.ledger.state !== 'ok')) ? '<div class="box" style="margin-top:14px"><h3>Authorizations</h3>' + (c.ledger && c.ledger.state === 'degraded' ? '<div style="font-size:12px;color:#b54708;background:#fffaeb;border:1px solid #fdb022;border-radius:6px;padding:8px 10px;margin-bottom:8px">Ledger read failed (' + esc(c.ledger.error || '') + '). Showing LAST KNOWN entries from ' + esc(c.ledger.lastKnownAt || 'unknown time') + ' - they may be stale; the actual ledger may differ.</div>' : c.ledger && c.ledger.state === 'unavailable' ? '<div style="font-size:12px;color:#b42318;background:#fef3f2;border:1px solid #fecdca;border-radius:6px;padding:8px 10px;margin-bottom:8px">Ledger read failed (' + esc(c.ledger.error || '') + ') and no last-known entries are preserved. Do NOT read this as an empty ledger - the provider may hold transactions this console cannot see.</div>' : '') + txns + '</div>' : '') +
     (function(){ var nf = (state.notifications || []).filter(function(n){ return n.caseId === c.kase.id; }); if (!nf.length) return ''; var mode = c.emailMode || 'preview'; var hdr = mode === 'preview' ? 'Email previews - preview mode, nothing sent' : mode === 'dry-run' ? 'Email pipeline dry-run - validated, still nothing is sent' : mode === 'gmail' ? 'Email delivery: Gmail' : 'Email delivery: experimental operator-configured endpoint'; return '<div class="box" style="margin-top:14px"><h3>' + hdr + '</h3>' + nf.map(function(n){ var st = n.status === 'preview' ? 'preview' : n.status === 'dry-run' ? (mode === 'http' ? 'dry-run, not sent - never auto-sent on a mode switch; explicit operator promotion only' : 'dry-run, not sent') : n.status === 'sent' ? 'sent ' + esc((n.receipt && n.receipt.at) || '') + ((n.receipt && n.receipt.promoted) ? ' (operator-promoted from dry-run)' : '') : 'FAILED - ' + ((n.receipt && n.receipt.ambiguous) ? 'outcome UNKNOWN, may have been sent' : 'not sent') + ': ' + esc((n.receipt && n.receipt.error) || '') + ' - needs operator review, no auto-resend'; return '<details style="padding:6px 0;border-bottom:1px solid #f0f2f3"><summary style="font-size:12.5px;cursor:pointer;color:#344054"><b>' + esc(n.subject) + '</b> <span class="muted">to ' + esc(n.to) + ' - ' + st + '</span></summary><pre style="white-space:pre-wrap;font-size:12px;color:#475467;background:#f9fafb;border-radius:6px;padding:10px;margin:6px 0">' + esc(n.body) + '</pre></details>'; }).join('') + '</div>'; })() +
     (c.log.length ? '<div class="log">' + c.log.map(function(l){ return '<div>' + esc(l) + '</div>'; }).join('') + '</div>' : '') +
-    '<div class="box audit"><h3>Audit trail - ' + esc(c.kase.id) + ' only</h3>' + audit + '</div>';
+    '<div class="box audit"><h3>Recent audit activity</h3><p class="srcnote">Last eight visible case or global events. Full exact-case entries are in the inspector below.</p>' + audit + '</div>' + evidencePanel(c);
+  document.getElementById('export-evidence').onclick = function(){ var blob=new Blob([JSON.stringify(caseEvidence(c),null,2)],{type:'application/json'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download='intentpay-case-evidence.json'; a.click(); setTimeout(function(){URL.revokeObjectURL(url);},1000); };
+  if (c.rejected) { p.insertAdjacentHTML('afterbegin', '<div class="decision" role="status"><b>Case rejected.</b><p>No new approval, card or purchase is allowed on this case. Create a new case for a fresh review.</p></div>'); p.querySelectorAll('#approve,#mkcard,#runagent,#extract,#change-real,#change-deal,#notice-analyse,#notice-apply,[data-sim]').forEach(function(b){b.remove();}); }
+  if(c.contractSource){p.insertAdjacentHTML('afterbegin','<div class="box"><h3>Salesforce Contract source</h3><p>Untrusted test contract. Fresh source check before approval, issue and purchase.</p><p>'+esc(c.contractSource.id)+' · version '+esc(c.contractSource.version.slice(0,12))+'</p><p>'+esc(c.sourceInvalidated?'SOURCE CHANGED OR UNAVAILABLE - old approval blocked':'Imported snapshot; source rechecked on action')+'</p><button class="act sec" id="sf-refresh">Read current contract into new review</button></div>');document.getElementById('sf-refresh').onclick=function(){if(!confirm('Create a fresh review from Salesforce? The old case is invalidated and its card frozen. No approval is inherited.'))return;api('/api/salesforce/import',{contractId:c.contractSource.id,previousCaseId:c.kase.id,confirm:true,weeklyBalances:c.forecast.weeklyBalances,reserveFloor:c.forecast.reserveFloor,forecastSource:c.forecastSource}).then(function(d){if(d.error){toast(d.error);load();return;}state.sel=d.case.kase.id;state.approval=null;toast('Fresh contract review created; extract and approve separately');load();});};}
+  if(c.contractSource){p.querySelectorAll('#change-real,#change-deal,#notice-analyse,#notice-file').forEach(function(b){b.remove();});if(c.sourceInvalidated)p.querySelectorAll('#approve,#mkcard,#runagent,[data-sim]').forEach(function(b){b.remove();});}
+  var na = document.getElementById('notice-analyse');
+  if (na) na.onclick = async function(){
+    var input = document.getElementById('notice-file'); var file = input && input.files && input.files[0];
+    if (!file) { toast('Select a .txt or plain-text .eml notice first.'); return; }
+    if(file.size > 32000){toast('Notice too large. Use a plain-text excerpt under 8000 characters.');return;}
+    na.disabled = true; na.textContent = 'Reading and comparing notice...';
+    try { var result = await api('/api/notice-propose', {caseId:c.kase.id, filename:file.name, content:await file.text()}); if(result.error)toast(result.error); else toast('Analysis saved. Review the evidence before any change.'); load(); } catch(e){toast('Analysis unavailable; no card action made.');load();}
+  };
+  var nap = document.getElementById('notice-apply');
+  if(nap) nap.onclick = async function(){
+    if(!confirm('Apply this reviewed proposal? This invalidates the old approval and freezes its card. It does not cancel the contract or approve a replacement purchase.'))return;
+    nap.disabled=true;
+    try {var result=await api('/api/notice-apply',{caseId:c.kase.id,proposalId:c.noticeProposal.id,confirm:true});state.approval=null;toast(result.error || 'Applied. Check freeze status, then review fresh spending authority.');load();} catch(e){state.approval=null;toast('Apply outcome unknown. Refresh and check state before doing anything else.');load();}
+  };
   var change = document.getElementById('change-deal');
   if (change) change.onclick = function(){
     if (!confirm('DEMO FIXTURE: this injects a SYNTHETIC cheaper deal (not real vendor terms) to exercise the terms-change flow. For a real change use "Change deal: enter real terms". Continue with the fixture?')) return;
@@ -221,6 +247,7 @@ function renderIntake(p) {
     '<div class="panelhead"><h2>New case from vendor terms</h2></div>' +
     '<div class="box"><h3>Vendor terms (untrusted text)</h3>' +
     '<div class="srcnote">Paste the vendor pricing text exactly as found. It is treated as untrusted data: instructions inside it carry no authority, extraction is gated, and a person still approves the intent.</div>' +
+    '<label class="fld">Salesforce Contract ID (optional, replaces pasted terms)<input id="in-contract" placeholder="800..."></label>' +
     '<label class="fld">Vendor name<input id="in-vendor" maxlength="120"></label>' +
     '<label class="fld">Terms text<textarea id="in-terms" rows="6" maxlength="8000"></textarea></label>' +
     '<label class="fld">Terms source (required)<input id="in-source" maxlength="200" placeholder="e.g. pricing page, invoice from inbox"></label>' +
@@ -234,6 +261,7 @@ function renderIntake(p) {
     '<div class="btns"><button class="act" id="in-submit">Create case</button><button class="act sec" id="in-cancel">Cancel</button></div>';
   document.getElementById('in-cancel').onclick = function(){ state.showIntake = false; render(); };
   document.getElementById('in-submit').onclick = function(){
+    var contractId = document.getElementById('in-contract').value.trim();
     var vendor = document.getElementById('in-vendor').value.trim();
     var rawTerms = document.getElementById('in-terms').value.trim();
     var sourceNote = document.getElementById('in-source').value.trim();
@@ -242,10 +270,10 @@ function renderIntake(p) {
     var balances = [];
     for (var i = 0; i < parts.length; i++) { var n = Number(parts[i].trim()); if (parts[i].trim() === '' || !isFinite(n) || n < 0) { toast('Weekly balances must be 12 non-negative numbers'); return; } balances.push(n); }
     var floor = Number(document.getElementById('in-floor').value);
-    if (!vendor || !rawTerms || !sourceNote) { toast('Vendor, terms text and terms source are required'); return; }
+    if (!contractId && (!vendor || !rawTerms || !sourceNote)) { toast('Vendor, terms text and terms source are required'); return; }
     if (balances.length !== 12) { toast('Exactly 12 weekly balances are required'); return; }
     if (!isFinite(floor) || floor < 0) { toast('Reserve floor must be a non-negative number'); return; }
-    api('/api/intake', { vendor: vendor, rawTerms: rawTerms, weeklyBalances: balances, reserveFloor: floor, sourceNote: sourceNote, forecastSource: forecastSource || undefined }).then(function(d2){
+    api(contractId?'/api/salesforce/import':'/api/intake', { contractId:contractId||undefined,confirm:contractId?true:undefined,vendor: vendor, rawTerms: rawTerms, weeklyBalances: balances, reserveFloor: floor, sourceNote: sourceNote, forecastSource: forecastSource || undefined }).then(function(d2){
       if (d2.error) { toast(d2.error); return; }
       state.showIntake = false; state.sel = d2.case.kase.id;
       toast('Case created - terms not extracted yet'); load();
