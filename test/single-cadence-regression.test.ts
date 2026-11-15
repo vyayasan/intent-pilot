@@ -1,0 +1,9 @@
+import {it,expect} from 'vitest';import {readFileSync} from 'node:fs';import {gate,SYSTEM_PROMPT,type Proposal} from '../src/agent/planner.js';import {checkReasoning} from '../src/agent/reasoning-checks.js';import {scoreRubric} from '../src/agent/rubric.js';
+const forecast={weeklyBalances:Array(12).fill(1500),reserveFloor:500};
+for(const kind of ['monthlyonly','annualonly']){
+ const x=JSON.parse(readFileSync(new URL('./fixtures/single-cadence-'+kind+'.json',import.meta.url),'utf8'));const p=x.proposal as Proposal;
+ it(kind+': explicit unavailable alternative is not a missing-price refusal',()=>{const proposal={...p,cadence:kind==='monthlyonly'?'monthly':'annual'} as Proposal;const g=gate(proposal,x.case,forecast);expect(g.accepted).toBe(true);expect(g.finalCadence).toBe(proposal.cadence);});
+ it(kind+': unexplained missing alternative still fails high-clarity reasoning',()=>{const c={...x.case,rawTerms:x.case.rawTerms.replace(/(?:Annual|Monthly) billing is not offered\./,'')};expect(checkReasoning(p,c,scoreRubric(p.rubric,p.confidence),null).some(x=>x.check==='score_vs_facts')).toBe(true)});
+ it(kind+': both absent cannot pass just by calling both unavailable',()=>{const c={...x.case,rawTerms:'Monthly billing is not offered. Annual billing is not offered.'};const bad={...p,extracted_terms:{...p.extracted_terms,monthlyPrice:null,annualPrice:null}};expect(checkReasoning(bad,c,scoreRubric(p.rubric,p.confidence),null).some(x=>x.check==='score_vs_facts')).toBe(true)});
+}
+it('prompt keeps single-cadence offers and both-breach refusal consistent with policy',()=>{expect(SYSTEM_PROMPT).toContain('exactly one cadence is explicitly not offered');expect(SYSTEM_PROMPT).toContain('both offered cadences breach the floor');expect(SYSTEM_PROMPT).not.toContain('When the text gives no annual price,')});
